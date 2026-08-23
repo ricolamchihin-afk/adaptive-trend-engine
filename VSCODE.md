@@ -112,24 +112,41 @@ Then run these one at a time:
 cd C:\Users\user\Cursor
 ```
 
+On many Windows machines PowerShell blocks `npm.ps1`. If you see
+`running scripts is disabled`, use `npm.cmd` instead of `npm`:
+
 ```powershell
-npm install
+npm.cmd install
 ```
 
 ```powershell
-npm test
+npm.cmd test
 ```
 
 ```powershell
-npm run dev
+npm.cmd run dev
 ```
 
 The console is at http://127.0.0.1:43871
 
 Leave that terminal running while you use the console. Stop it with `Ctrl+C`.
 
-If `npm` is not recognized, install Node.js LTS, close every terminal, and
-try again.
+If `npm` or `npm.cmd` is not recognized, install Node.js LTS, close every
+terminal, and try again.
+
+### Optional: let `npm` work in PowerShell
+
+This changes the policy for your Windows user only, not the whole PC:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+Type `Y` if it asks. Close the terminal and open a new one. After that,
+`npm install` works without `.cmd`.
+
+Another path: in the VS Code terminal dropdown, choose Command Prompt,
+then use `npm install` as usual.
 
 ## 5. PyCharm habits: VS Code equivalents
 
