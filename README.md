@@ -6,10 +6,27 @@ boundary. It is **not** live authorization.
 
 GitHub (private): https://github.com/ricolamchihin-afk/smart-grid-conservative-readiness
 
-Open it in PyCharm as `C:\\Users\\user\\PycharmProjects\\Cursor`:
+## Open in VS Code
+
+The clone can succeed and `code` can still fail. That only means the `code`
+command is not on PATH. Do not paste `copilot-debug` or any text with `<`.
+
+1. Open the Start menu.
+2. Type Visual Studio Code and open it. Install it from
+   https://code.visualstudio.com/ if Windows cannot find it.
+3. File: Open Folder: `C:\\Users\\user\\Cursor`.
+4. In the VS Code terminal, run `npm install`, then `npm test`, then
+   `npm run dev`.
+
+Full steps: [VSCODE.md](VSCODE.md).
+
+If you still want a fresh clone, run these as two separate lines:
 
 ```powershell
-cd C:\Users\user\PycharmProjects
+cd C:\\Users\\user
+```
+
+```powershell
 git clone https://github.com/ricolamchihin-afk/smart-grid-conservative-readiness.git Cursor
 ```
 
@@ -19,7 +36,7 @@ or overwrite those ledgers.
 
 ## What this is
 
-- Frozen Conservative specification: 25% floor → 100% as extension falls, 10x
+- Frozen Conservative specification: 25% floor to 100% as extension falls, 10x
   on deployed margin, 20% allocation, 40% liquidation-buffer floor.
 - Three equal-capital paper mandates (USD 4,000 research reference each).
   Conservative is the only live candidate. Moderate and Aggressive are
@@ -49,7 +66,7 @@ The console listens on [http://127.0.0.1:43871](http://127.0.0.1:43871).
 Endpoints:
 
 | Method | Path | Purpose |
-|---|---|---|
+|---|---|
 | GET | `/` | Readiness console |
 | GET | `/api/snapshot` | Paper state, hierarchy, gates, intents |
 | GET | `/api/health` | Liveness; always reports writes disabled |
