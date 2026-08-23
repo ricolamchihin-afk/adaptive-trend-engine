@@ -1,4 +1,4 @@
-# Smart Grid — Conservative LONG readiness
+# Smart Grid: Conservative LONG readiness
 
 Phase 7.9 production-preparation console for the **Conservative LONG** candidate
 selected on 2026-08-21 HKT. This is a paper observation and disabled production
