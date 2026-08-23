@@ -1,0 +1,17 @@
+{
+  "name": "Smart Grid Conservative Readiness",
+  "install": "npm install",
+  "terminals": [
+    {
+      "name": "Next dev server",
+      "command": "npm run dev",
+      "description": "Phase 7.9 readiness console on http://127.0.0.1:43871 (paper only, live writes disabled)."
+    }
+  ],
+  "ports": [
+    {
+      "name": "console",
+      "port": 43871
+    }
+  ]
+}
