@@ -4,17 +4,18 @@ Phase 7.9 production-preparation console for the **Conservative LONG** candidate
 selected on 2026-08-21 HKT. This is a paper observation and disabled production
 boundary. It is **not** live authorization.
 
-The original Classic Grid / Phase 7.8.2 Windows tree is not in this repository.
-This epoch starts from public closed Hyperliquid BTC candles and does not resume
-or overwrite those ledgers.
+GitHub (private): https://github.com/ricolamchihin-afk/smart-grid-conservative-readiness
 
-Clone this into PyCharm as `C:\\Users\\user\\PycharmProjects\\Cursor` if that is
-the folder you want to work from:
+Open it in PyCharm as `C:\\Users\\user\\PycharmProjects\\Cursor`:
 
 ```powershell
 cd C:\Users\user\PycharmProjects
 git clone https://github.com/ricolamchihin-afk/smart-grid-conservative-readiness.git Cursor
 ```
+
+The original Classic Grid / Phase 7.8.2 Windows tree is not in this repository.
+This epoch starts from public closed Hyperliquid BTC candles and does not resume
+or overwrite those ledgers.
 
 ## What this is
 
