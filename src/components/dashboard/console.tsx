@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import {
   Table,
@@ -21,6 +23,54 @@ import { pct, usd } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const REGIMES: Regime[] = ["LONG", "SHORT", "FLAT"];
+
+interface LabParams {
+  years: number;
+  riskPct: number; // percent
+  maxLeverage: number;
+  donchianEntry: number;
+  donchianExit: number;
+  atrPeriod: number;
+  atrStopMult: number;
+  adxPeriod: number;
+  adxThreshold: number;
+  dailyEma: number;
+  rsiPeriod: number;
+  rsiLongMin: number;
+  rsiShortMax: number;
+}
+
+const DEFAULT_LAB: LabParams = {
+  years: 2,
+  riskPct: 3,
+  maxLeverage: 20,
+  donchianEntry: 34,
+  donchianExit: 7,
+  atrPeriod: 14,
+  atrStopMult: 2,
+  adxPeriod: 14,
+  adxThreshold: 0,
+  dailyEma: 100,
+  rsiPeriod: 14,
+  rsiLongMin: 0,
+  rsiShortMax: 100,
+};
+
+const LAB_FIELDS: Array<{ key: keyof LabParams; label: string; step?: number; hint: string }> = [
+  { key: "years", label: "Years", hint: "1-3 (4h feed caps ~2.3y)" },
+  { key: "riskPct", label: "Risk % / trade", step: 0.5, hint: "ATR volatility sizing" },
+  { key: "maxLeverage", label: "Max leverage", hint: "hard cap" },
+  { key: "donchianEntry", label: "Donchian entry", hint: "breakout lookback (bars)" },
+  { key: "donchianExit", label: "Donchian exit", hint: "trailing exit (bars)" },
+  { key: "atrPeriod", label: "ATR period", hint: "volatility lookback" },
+  { key: "atrStopMult", label: "ATR stop x", step: 0.5, hint: "initial stop distance" },
+  { key: "adxPeriod", label: "ADX period", hint: "trend-strength lookback" },
+  { key: "adxThreshold", label: "ADX min", hint: "0 disables the gate" },
+  { key: "dailyEma", label: "Daily EMA", hint: "trend filter period" },
+  { key: "rsiPeriod", label: "RSI period", hint: "momentum indicator" },
+  { key: "rsiLongMin", label: "RSI long ≥", hint: "0 disables (e.g. 50)" },
+  { key: "rsiShortMax", label: "RSI short ≤", hint: "100 disables (e.g. 50)" },
+];
 
 function pnlClass(value: number): string {
   if (value > 0.0001) return "text-emerald-400";
@@ -72,6 +122,7 @@ export function ReadinessConsole() {
   const [backtest, setBacktest] = useState<BacktestReport | null>(null);
   const [backtestError, setBacktestError] = useState<string | null>(null);
   const [backtesting, setBacktesting] = useState(false);
+  const [lab, setLab] = useState<LabParams>(DEFAULT_LAB);
 
   const load = useCallback(async () => {
     try {
@@ -121,11 +172,26 @@ export function ReadinessConsole() {
     }
   }
 
-  async function runBacktest(years: number) {
+  async function runBacktest(p: LabParams) {
     setBacktesting(true);
     setBacktestError(null);
     try {
-      const response = await fetch(`/api/backtest?years=${years}`, { cache: "no-store" });
+      const q = new URLSearchParams({
+        years: String(p.years),
+        risk: String(p.riskPct / 100),
+        lev: String(p.maxLeverage),
+        entry: String(p.donchianEntry),
+        exit: String(p.donchianExit),
+        atrPeriod: String(p.atrPeriod),
+        atrMult: String(p.atrStopMult),
+        adxPeriod: String(p.adxPeriod),
+        adx: String(p.adxThreshold),
+        dailyEma: String(p.dailyEma),
+        rsiPeriod: String(p.rsiPeriod),
+        rsiLongMin: String(p.rsiLongMin),
+        rsiShortMax: String(p.rsiShortMax),
+      });
+      const response = await fetch(`/api/backtest?${q}`, { cache: "no-store" });
       const data = (await response.json()) as BacktestReport & { error?: string };
       if (!response.ok) throw new Error(data.error || "backtest_failed");
       setBacktest(data);
@@ -284,7 +350,7 @@ export function ReadinessConsole() {
 
         <Tabs defaultValue="backtest" className="space-y-4">
           <TabsList className="bg-[#14181f]">
-            <TabsTrigger value="backtest">1-year backtest</TabsTrigger>
+            <TabsTrigger value="backtest">Backtest lab</TabsTrigger>
             <TabsTrigger value="leverage">Leverage &amp; ROE</TabsTrigger>
             <TabsTrigger value="boundary">Production boundary</TabsTrigger>
           </TabsList>
@@ -292,20 +358,34 @@ export function ReadinessConsole() {
           <TabsContent value="backtest">
             <Card className="border-white/10 bg-[#14181f]">
               <CardHeader>
-                <CardTitle>Backtest: Turtle trend follower over a year</CardTitle>
+                <CardTitle>Backtest lab</CardTitle>
                 <CardDescription>
-                  Donchian breakout + ATR sizing on every closed 4h bar for roughly a year. Winners
-                  run to the reversal; each loss is capped near the risk budget. Measures the strategy;
-                  it tunes nothing at run time.
+                  Tune any factor and re-run over up to ~3 years of closed 4h candles. ADX and RSI
+                  are optional confirmation indicators (set ADX min &gt; 0, or RSI long/short bounds
+                  inside 0-100, to enable). Donchian breakout + ATR volatility sizing; winners run to
+                  the trailing exit, losers capped near the risk budget.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
-                <div className="flex flex-wrap gap-2">
-                  {[1, 2, 3].map((y) => (
-                    <Button key={y} onClick={() => void runBacktest(y)} disabled={backtesting}>
-                      {backtesting ? "Walking candles..." : `Run ${y}-year backtest`}
-                    </Button>
+                <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                  {LAB_FIELDS.map((field) => (
+                    <NumberField
+                      key={field.key}
+                      label={field.label}
+                      hint={field.hint}
+                      step={field.step}
+                      value={lab[field.key]}
+                      onChange={(value) => setLab((prev) => ({ ...prev, [field.key]: value }))}
+                    />
                   ))}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={() => void runBacktest(lab)} disabled={backtesting}>
+                    {backtesting ? "Walking candles..." : "Run backtest"}
+                  </Button>
+                  <Button variant="destructive" onClick={() => setLab(DEFAULT_LAB)} disabled={backtesting}>
+                    Reset defaults
+                  </Button>
                 </div>
                 {backtestError ? (
                   <Alert variant="destructive">
@@ -322,10 +402,15 @@ export function ReadinessConsole() {
                       <Metric label="Trades" value={String(backtest.trades)} hint={`${backtest.winRatePct === null ? "n/a" : `${backtest.winRatePct.toFixed(0)}% win`} · fees ${usd(backtest.feesUsd)} · ${backtest.durationDays.toFixed(0)}d`} />
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      <Metric label="Best month" value={`${signed(backtest.bestMonthPct, 1)}%`} hint="single strongest month" valueClass="text-emerald-400" />
-                      <Metric label="Worst month" value={`${signed(backtest.worstMonthPct, 1)}%`} hint="single weakest month" valueClass="text-rose-300" />
-                      <Metric label="Avg month" value={`${signed(backtest.avgMonthPct, 1)}%`} hint={`${backtest.monthsCount} months`} valueClass={pnlClass(backtest.avgMonthPct)} />
-                      <Metric label="Months ≥ 20%" value={`${backtest.monthsAbove20} / ${backtest.monthsCount}`} hint="big momentum months captured" />
+                      <Metric label="Sortino" value={backtest.sortino === null ? "-" : backtest.sortino.toFixed(2)} hint="downside-risk adjusted" valueClass={pnlClass(backtest.sortino ?? 0)} />
+                      <Metric
+                        label="Significance (null H0)"
+                        value={backtest.tStat === null ? "-" : `t=${backtest.tStat.toFixed(1)}`}
+                        hint={backtest.pValue === null ? "n/a" : `p=${backtest.pValue.toFixed(3)} ${backtest.pValue < 0.05 ? "(significant)" : "(not significant)"}`}
+                        valueClass={backtest.pValue !== null && backtest.pValue < 0.05 ? "text-emerald-400" : "text-zinc-300"}
+                      />
+                      <Metric label="Alpha vs buy&hold" value={`${signed(backtest.alphaVsHoldPct, 1)}%`} hint={`hold BTC: ${signed(backtest.buyHoldReturnPct, 1)}%`} valueClass={pnlClass(backtest.alphaVsHoldPct)} />
+                      <Metric label="Months ≥ 20%" value={`${backtest.monthsAbove20} / ${backtest.monthsCount}`} hint={`best ${signed(backtest.bestMonthPct, 0)}% · worst ${signed(backtest.worstMonthPct, 0)}%`} />
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <StatusPill tone={backtest.everLiquidated ? "bad" : "good"}>
@@ -480,6 +565,34 @@ function Row({ k, v, valueClass }: { k: string; v: string; valueClass?: string }
     <div className="flex items-start justify-between gap-4">
       <span className="text-zinc-500">{k}</span>
       <span className={cn("text-right font-medium text-zinc-100", valueClass)}>{v}</span>
+    </div>
+  );
+}
+
+function NumberField({
+  label,
+  hint,
+  value,
+  step,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  value: number;
+  step?: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-[11px] uppercase tracking-[0.12em] text-zinc-500">{label}</Label>
+      <Input
+        type="number"
+        step={step ?? 1}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="border-white/10 bg-black/30"
+      />
+      <p className="text-[10px] text-zinc-600">{hint}</p>
     </div>
   );
 }

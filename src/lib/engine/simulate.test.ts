@@ -22,6 +22,7 @@ function feat(
     exitLow: null,
     atr: 500,
     adx: 30, // above the trend-strength gate so entries can fire in tests
+    rsi: 60,
     dailyDir: 0,
     ...extra,
   };

@@ -18,7 +18,12 @@ export interface BacktestReport {
   totalReturnPct: number;
   cagrPct: number;
   sharpe: number | null;
+  sortino: number | null;
   annualVolPct: number;
+  tStat: number | null;
+  pValue: number | null;
+  buyHoldReturnPct: number;
+  alphaVsHoldPct: number;
   bestMonthPct: number;
   worstMonthPct: number;
   avgMonthPct: number;
@@ -60,6 +65,9 @@ export function runBacktest(
   const years = durationDays / 365;
   const growth = result.finalEquityUsd / result.startEquityUsd;
   const cagrPct = years > 0 && growth > 0 ? (growth ** (1 / years) - 1) * 100 : 0;
+  const firstClose = exec[0].close;
+  const lastCloseP = exec[exec.length - 1].close;
+  const buyHoldReturnPct = firstClose > 0 ? (lastCloseP / firstClose - 1) * 100 : 0;
 
   return {
     epochStart: new Date(first).toISOString(),
@@ -76,7 +84,12 @@ export function runBacktest(
     totalReturnPct: result.totalReturnPct,
     cagrPct,
     sharpe: result.sharpe,
+    sortino: result.sortino,
     annualVolPct: result.annualVolPct,
+    tStat: result.tStat,
+    pValue: result.pValue,
+    buyHoldReturnPct,
+    alphaVsHoldPct: result.totalReturnPct - buyHoldReturnPct,
     bestMonthPct: result.bestMonthPct,
     worstMonthPct: result.worstMonthPct,
     avgMonthPct: result.avgMonthPct,

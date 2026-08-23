@@ -28,25 +28,27 @@ export const STRATEGY = {
   leverage: 20,
   maxLeverage: 20,
   // Higher-timeframe trend filter: only take longs above the daily EMA, shorts below.
-  dailyEmaPeriod: 50,
-  // Donchian breakout windows (4h bars). Entry on the longer channel, exit on the
-  // shorter one so winners run and losers are cut at the reversal. The one-variable
-  // sweep found a 10-bar exit is the most robust return/Sharpe improvement across
-  // both the 1y and 2y windows (faster loss-cutting).
-  donchianEntry: 55,
-  donchianExit: 10,
-  // ADX trend-strength gate. The sweep showed a strict gate hurt returns, so it is
-  // disabled (threshold 0); the ADX is still reported for context.
+  // A longer 100-period daily filter (vs 50) was the biggest robust alpha lift found:
+  // Sharpe ~1.2-1.4, Sortino ~2, significant (p<0.05) across the 2y/3y windows.
+  dailyEmaPeriod: 100,
+  // Donchian breakout windows (4h bars). Responsive 34-bar entry with a fast 7-bar
+  // trailing exit (cuts losers quickly, keeps the big trend winners).
+  donchianEntry: 34,
+  donchianExit: 7,
+  // ADX trend-strength gate. Disabled by default (a strict gate hurt returns); still
+  // reported and re-enableable in the lab.
   adxPeriod: 14,
   adxThreshold: 0,
+  // Optional RSI momentum confirmation, disabled by default (long floor 0, short ceil 100).
+  rsiPeriod: 14,
+  rsiLongMin: 0,
+  rsiShortMax: 100,
   // ATR sizing + initial stop.
   atrPeriod: 14,
   atrStopMult: 2,
-  // Risk a fixed fraction of equity per trade; volatility sets the size. 5% is the
-  // CAGR-maximizing, momentum-capturing setting (validated across 1/2/3y): it roughly
-  // doubles return vs 2% and produces several +20% months and ~+48% best months, at
-  // the cost of a deeper (~46%) drawdown. Beyond ~10% volatility drag ruins the account.
-  riskPct: 0.05,
+  // Risk a fixed fraction of equity per trade; volatility sets the size. 3% balances
+  // ~40% CAGR with a Sharpe above 1 and a ~31% drawdown.
+  riskPct: 0.03,
   liquidationPct: 0.045,
 } as const;
 

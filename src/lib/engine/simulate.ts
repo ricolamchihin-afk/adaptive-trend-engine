@@ -10,10 +10,21 @@ export interface SimConfig {
   atrStopMult: number;
   liquidationPct: number;
   adxThreshold: number;
+  rsiLongMin: number;
+  rsiShortMax: number;
 }
 
 // 4h bars per year, for annualizing the Sharpe ratio.
 const PERIODS_PER_YEAR = 6 * 365;
+
+// Standard normal CDF (Abramowitz-Stegun 7.1.26) for an approximate p-value.
+function normalCdf(x: number): number {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const d = 0.3989422804014327 * Math.exp((-x * x) / 2);
+  const p =
+    d * t * (0.31938153 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  return x >= 0 ? 1 - p : p;
+}
 
 export function defaultSimConfig(): SimConfig {
   return {
@@ -24,6 +35,8 @@ export function defaultSimConfig(): SimConfig {
     atrStopMult: STRATEGY.atrStopMult,
     liquidationPct: STRATEGY.liquidationPct,
     adxThreshold: STRATEGY.adxThreshold,
+    rsiLongMin: STRATEGY.rsiLongMin,
+    rsiShortMax: STRATEGY.rsiShortMax,
   };
 }
 
@@ -37,7 +50,11 @@ export interface SimResult {
   losses: number;
   winRatePct: number | null;
   sharpe: number | null;
+  sortino: number | null;
   annualVolPct: number;
+  // Null-hypothesis test H0: mean per-bar return = 0. t-stat and one-sided p-value.
+  tStat: number | null;
+  pValue: number | null;
   monthlyReturnsPct: number[];
   bestMonthPct: number;
   worstMonthPct: number;
@@ -163,10 +180,12 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
     }
 
     const trendStrong = f.adx !== null && f.adx >= cfg.adxThreshold;
+    const rsiOkLong = cfg.rsiLongMin <= 0 || (f.rsi !== null && f.rsi >= cfg.rsiLongMin);
+    const rsiOkShort = cfg.rsiShortMax >= 100 || (f.rsi !== null && f.rsi <= cfg.rsiShortMax);
     if (posBtc === 0 && !justExited && trendStrong && f.atr !== null && f.atr > 0) {
-      if (f.dailyDir > 0 && f.entryHigh !== null && candle.high >= f.entryHigh) {
+      if (f.dailyDir > 0 && rsiOkLong && f.entryHigh !== null && candle.high >= f.entryHigh) {
         open(1, Math.max(candle.open, f.entryHigh), f.atr, "LONG");
-      } else if (f.dailyDir < 0 && f.entryLow !== null && candle.low <= f.entryLow) {
+      } else if (f.dailyDir < 0 && rsiOkShort && f.entryLow !== null && candle.low <= f.entryLow) {
         open(-1, Math.min(candle.open, f.entryLow), f.atr, "SHORT");
       }
     }
@@ -200,6 +219,19 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
   const sd = Math.sqrt(variance);
   const sharpe = sd > 0 ? (meanRet / sd) * Math.sqrt(PERIODS_PER_YEAR) : null;
   const annualVolPct = sd * Math.sqrt(PERIODS_PER_YEAR) * 100;
+
+  // Sortino: annualized mean over downside deviation (only negative returns).
+  const downside = rets.filter((r) => r < 0);
+  const downVar = downside.length
+    ? downside.reduce((s, r) => s + r * r, 0) / rets.length
+    : 0;
+  const downSd = Math.sqrt(downVar);
+  const sortino = downSd > 0 ? (meanRet / downSd) * Math.sqrt(PERIODS_PER_YEAR) : null;
+
+  // Null hypothesis H0: mean per-bar return = 0. Two-sided-ish one-sided p-value via
+  // a normal approximation of the t-statistic.
+  const tStat = sd > 0 && rets.length > 1 ? meanRet / (sd / Math.sqrt(rets.length)) : null;
+  const pValue = tStat === null ? null : 1 - normalCdf(tStat);
 
   // Calendar-month returns from the equity curve (chained month-end equity).
   const monthEnd = new Map<string, number>();
@@ -246,7 +278,10 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
     losses,
     winRatePct: closedTrades > 0 ? (wins / closedTrades) * 100 : null,
     sharpe,
+    sortino,
     annualVolPct,
+    tStat,
+    pValue,
     monthlyReturnsPct,
     bestMonthPct,
     worstMonthPct,

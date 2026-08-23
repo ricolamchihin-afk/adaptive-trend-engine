@@ -1,5 +1,13 @@
 import { usableAt } from "./candles";
-import { adxWilder, atr, closesOf, highestHigh, lastEma, lowestLow } from "./indicators";
+import {
+  adxWilder,
+  atr,
+  closesOf,
+  highestHigh,
+  lastEma,
+  lowestLow,
+  rsiWilder,
+} from "./indicators";
 import { STRATEGY } from "./spec";
 import type { Candle, MarketSeries } from "./types";
 
@@ -14,6 +22,8 @@ export interface Feature {
   atr: number | null;
   // 4h ADX (trend strength) over the prior bars.
   adx: number | null;
+  // 4h RSI (momentum) over the prior bars.
+  rsi: number | null;
   // Daily trend filter: +1 above the daily EMA, -1 below, 0 unavailable.
   dailyDir: 1 | -1 | 0;
 }
@@ -23,6 +33,7 @@ export interface FeatureParams {
   donchianExit: number;
   atrPeriod: number;
   adxPeriod: number;
+  rsiPeriod: number;
   dailyEmaPeriod: number;
 }
 
@@ -47,15 +58,18 @@ export function buildFeatures(
   const m = params.donchianExit ?? STRATEGY.donchianExit;
   const p = params.atrPeriod ?? STRATEGY.atrPeriod;
   const adxPeriod = params.adxPeriod ?? STRATEGY.adxPeriod;
+  const rsiPeriod = params.rsiPeriod ?? STRATEGY.rsiPeriod;
   const dailyEmaPeriod = params.dailyEmaPeriod ?? STRATEGY.dailyEmaPeriod;
   const bars = series.fourHour;
   const adxWindow = adxPeriod * 4;
+  const rsiWindow = rsiPeriod * 4;
 
   return bars.map((candle, i) => {
     const priorEntry = bars.slice(Math.max(0, i - n), i);
     const priorExit = bars.slice(Math.max(0, i - m), i);
     const atrBars = bars.slice(Math.max(0, i - (p + 1)), i);
     const adxBars = bars.slice(Math.max(0, i - adxWindow), i);
+    const rsiBars = bars.slice(Math.max(0, i - (rsiWindow + 1)), i);
     const haveEntry = i >= n;
     const haveExit = i >= m;
     return {
@@ -79,6 +93,7 @@ export function buildFeatures(
         adxBars.map((c) => c.close),
         adxPeriod,
       ),
+      rsi: rsiWilder(rsiBars.map((c) => c.close), rsiPeriod),
       dailyDir: dailyDirAt(series, candle.openTime, dailyEmaPeriod),
     };
   });

@@ -20,10 +20,16 @@ export async function GET(request: Request) {
       maxLeverage: num(params, "lev"),
       atrStopMult: num(params, "atrMult"),
       adxThreshold: num(params, "adx"),
+      rsiLongMin: num(params, "rsiLongMin"),
+      rsiShortMax: num(params, "rsiShortMax"),
     };
     const feat = {
       donchianEntry: num(params, "entry"),
       donchianExit: num(params, "exit"),
+      atrPeriod: num(params, "atrPeriod"),
+      adxPeriod: num(params, "adxPeriod"),
+      rsiPeriod: num(params, "rsiPeriod"),
+      dailyEmaPeriod: num(params, "dailyEma"),
     };
     const cleanSim = Object.fromEntries(Object.entries(sim).filter(([, v]) => v !== undefined));
     const cleanFeat = Object.fromEntries(Object.entries(feat).filter(([, v]) => v !== undefined));
