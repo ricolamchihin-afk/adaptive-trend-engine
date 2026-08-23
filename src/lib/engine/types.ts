@@ -3,10 +3,10 @@ export type MarketSource = "hyperliquid_public" | "offline_synthetic_fallback";
 export type VenueId = "phoenix";
 
 // Dynamic directional exposure. The strategy is one of these at any decision:
-//   LONG  — trending up, hold +leverage notional
-//   SHORT — trending down, hold -leverage notional
-//   GRID  — ranging, run a lean neutral grid around the anchor
-//   FLAT  — halt / ineligible / conflict, hold no exposure
+//   LONG: trending up, hold +leverage notional
+//   SHORT: trending down, hold -leverage notional
+//   GRID: ranging, run a lean neutral grid around the anchor
+//   FLAT: halt / ineligible / conflict, hold no exposure
 export type Regime = "LONG" | "SHORT" | "GRID" | "FLAT";
 
 export interface Candle {

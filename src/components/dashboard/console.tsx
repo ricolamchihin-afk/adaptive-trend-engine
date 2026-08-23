@@ -20,7 +20,7 @@ import type { Regime } from "@/lib/engine/types";
 import { pct, usd } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const REGIMES: Regime[] = ["LONG", "SHORT", "GRID", "FLAT"];
+const REGIMES: Regime[] = ["LONG", "SHORT", "FLAT"];
 
 function pnlClass(value: number): string {
   if (value > 0.0001) return "text-emerald-400";
@@ -28,11 +28,10 @@ function pnlClass(value: number): string {
   return "text-zinc-300";
 }
 
-function regimeTone(regime: string): "good" | "warn" | "bad" | "neutral" {
-  if (regime === "LONG") return "good";
-  if (regime === "SHORT") return "warn";
-  if (regime === "GRID") return "neutral";
-  return "bad";
+function sideTone(side: string): "good" | "warn" | "bad" | "neutral" {
+  if (side === "LONG") return "good";
+  if (side === "SHORT") return "warn";
+  return "neutral";
 }
 
 function StatusPill({
@@ -78,9 +77,7 @@ export function ReadinessConsole() {
     try {
       const response = await fetch("/api/snapshot", { cache: "no-store" });
       const data = (await response.json()) as Snapshot & { error?: string };
-      if (!response.ok) {
-        throw new Error(data.error || "snapshot_failed");
-      }
+      if (!response.ok) throw new Error(data.error || "snapshot_failed");
       setSnapshot(data);
       setError(null);
     } catch (err) {
@@ -124,11 +121,11 @@ export function ReadinessConsole() {
     }
   }
 
-  async function runBacktest() {
+  async function runBacktest(years: number) {
     setBacktesting(true);
     setBacktestError(null);
     try {
-      const response = await fetch("/api/backtest", { cache: "no-store" });
+      const response = await fetch(`/api/backtest?years=${years}`, { cache: "no-store" });
       const data = (await response.json()) as BacktestReport & { error?: string };
       if (!response.ok) throw new Error(data.error || "backtest_failed");
       setBacktest(data);
@@ -144,11 +141,9 @@ export function ReadinessConsole() {
       <div className="flex min-h-screen items-center justify-center bg-[#0b0d10] px-6">
         <div className="max-w-md text-center">
           <p className="text-xs uppercase tracking-[0.28em] text-amber-200/80">Phase 7.10</p>
-          <h1 className="mt-3 text-2xl font-semibold text-zinc-100">
-            Loading dynamic directional strategy
-          </h1>
+          <h1 className="mt-3 text-2xl font-semibold text-zinc-100">Loading trend strategy</h1>
           <p className="mt-3 text-sm leading-6 text-zinc-400">
-            Fetching closed Hyperliquid candles and classifying the daily/4h regime.
+            Fetching closed Hyperliquid candles and running the Donchian trend engine.
             No exchange credentials are used.
           </p>
         </div>
@@ -161,9 +156,7 @@ export function ReadinessConsole() {
       <div className="flex min-h-screen items-center justify-center bg-[#0b0d10] px-6">
         <Alert variant="destructive" className="max-w-lg border-rose-500/40 bg-rose-950/40">
           <AlertTitle>Console failed closed</AlertTitle>
-          <AlertDescription>
-            {error}. The engine will not invent candles or place orders.
-          </AlertDescription>
+          <AlertDescription>{error}. The engine will not invent candles or place orders.</AlertDescription>
         </Alert>
       </div>
     );
@@ -171,7 +164,7 @@ export function ReadinessConsole() {
 
   if (!snapshot) return null;
 
-  const { regime, position, strategy, market, leverage } = snapshot;
+  const { regime, position, strategy, market, leverage, recent } = snapshot;
 
   return (
     <div className="min-h-screen bg-[#0b0d10] text-zinc-100">
@@ -182,16 +175,17 @@ export function ReadinessConsole() {
               Smart Grid · Phase 7.10
             </p>
             <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-              Dynamic directional exposure
+              Turtle trend follower
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
-              One Phoenix book, {usd(strategy.capitalUsd, 0)} at {strategy.leverage}x.
-              The daily/4h trend picks LONG, SHORT, or a neutral GRID; a hard halt goes
-              FLAT. Paper only — this console cannot submit, cancel, or resize an order.
+              One Phoenix book, {usd(strategy.capitalUsd, 0)}. Donchian breakout entries filtered by the
+              daily trend, an ATR trailing stop, and volatility sizing that risks{" "}
+              {(strategy.riskPct * 100).toFixed(1)}% per trade (up to {strategy.maxLeverage}x). Paper only:
+              this console cannot submit, cancel, or resize an order.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <StatusPill tone={regimeTone(regime.regime)}>Regime: {regime.regime}</StatusPill>
+            <StatusPill tone={sideTone(position.side)}>Position: {position.side}</StatusPill>
             <StatusPill tone="bad">live_actions_enabled = false</StatusPill>
             {snapshot.paperKill ? <StatusPill tone="live">Paper kill engaged</StatusPill> : null}
           </div>
@@ -213,62 +207,53 @@ export function ReadinessConsole() {
         ) : null}
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Metric label="BTC mark" value={market.mark ? usd(market.mark, 0) : "\u2014"} hint={market.lastClosed ?? "no closed bar"} />
+          <Metric label="BTC mark" value={market.mark ? usd(market.mark, 0) : "-"} hint={market.lastClosed ?? "no closed bar"} />
           <Metric
-            label="Current regime"
-            value={regime.regime}
-            hint={regime.reason.replaceAll("_", " ")}
-            valueClass={
-              regime.regime === "LONG"
-                ? "text-emerald-400"
-                : regime.regime === "SHORT"
-                  ? "text-amber-300"
-                  : "text-zinc-300"
-            }
-          />
-          <Metric
-            label="Intended position"
-            value={
-              position.side === "FLAT"
-                ? "Flat"
-                : `${position.side} ${position.sizeBtc.toFixed(4)} BTC`
-            }
-            hint={position.side === "FLAT" ? "no exposure" : `${usd(position.notionalUsd, 0)} notional @ ${strategy.leverage}x`}
+            label="Position"
+            value={position.side === "FLAT" ? "Flat" : `${position.side} ${Math.abs(position.sizeBtc).toFixed(4)} BTC`}
+            hint={position.side === "FLAT" ? "no exposure" : `${usd(position.notionalUsd, 0)} notional · ${position.leverage.toFixed(1)}x`}
             valueClass={position.side === "SHORT" ? "text-amber-300" : position.side === "LONG" ? "text-emerald-400" : undefined}
           />
           <Metric
-            label="Liquidation price"
-            value={position.liquidationPrice ? usd(position.liquidationPrice, 0) : "\u2014"}
-            hint={`${pct(position.liquidationDistancePct)} away at ${strategy.leverage}x`}
+            label="Trailing stop"
+            value={position.stopPrice ? usd(position.stopPrice, 0) : "-"}
+            hint={position.entry ? `entry ${usd(position.entry, 0)}` : "flat"}
             valueClass="text-rose-300"
+          />
+          <Metric
+            label={`Recent (${recent.windowDays.toFixed(0)}d) return`}
+            value={`${signed(recent.totalReturnPct)}%`}
+            hint={`${recent.trades} trades · ${recent.winRatePct === null ? "n/a" : `${recent.winRatePct.toFixed(0)}% win`} · ${recent.maxDrawdownPct.toFixed(0)}% maxDD`}
+            valueClass={pnlClass(recent.totalReturnPct)}
           />
         </section>
 
         <Card className="border-white/10 bg-[#14181f]">
           <CardHeader>
-            <CardTitle>Regime decision (daily + 4h)</CardTitle>
+            <CardTitle>Trend signal</CardTitle>
             <CardDescription>
-              A trending 4h that agrees with the daily bias sets LONG or SHORT. A weak
-              (non-trending) ADX runs the neutral GRID. RSI tails or a conflict force FLAT.
+              The daily EMA gates direction; a 4h close beyond the {""}
+              {strategy.venue} Donchian entry channel opens a trade, sized so the ATR stop risks a
+              fixed slice of equity. Winners run until the shorter Donchian channel is broken.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <ThesisChip label="Regime" value={regime.regime} tone={regimeTone(regime.regime)} />
+              <ThesisChip label="Position" value={position.side} tone={sideTone(position.side)} />
               <ThesisChip
-                label="Daily bias"
-                value={regime.dailyBullish === null ? "\u2014" : regime.dailyBullish ? "Bullish" : "Bearish"}
-                tone={regime.dailyBullish ? "good" : "warn"}
+                label="Daily filter"
+                value={regime.dailyDir === 1 ? "Above (long)" : regime.dailyDir === -1 ? "Below (short)" : "Neutral"}
+                tone={regime.dailyDir === 1 ? "good" : regime.dailyDir === -1 ? "warn" : "neutral"}
               />
               <ThesisChip
-                label="4h trend"
-                value={regime.fourHourUp ? "Up" : regime.fourHourDown ? "Down" : "Flat"}
-                tone={regime.fourHourUp ? "good" : regime.fourHourDown ? "warn" : "neutral"}
+                label="Effective leverage"
+                value={position.side === "FLAT" ? "0x" : `${position.leverage.toFixed(1)}x`}
+                tone="neutral"
               />
               <ThesisChip
-                label="4h ADX"
-                value={regime.fourHourAdx === null ? "\u2014" : `${regime.fourHourAdx.toFixed(1)}${regime.trending ? " (trend)" : " (range)"}`}
-                tone={regime.trending ? "good" : "neutral"}
+                label="Liquidation"
+                value={position.liquidationPrice ? usd(position.liquidationPrice, 0) : "-"}
+                tone="bad"
               />
             </div>
             <div className="overflow-x-auto">
@@ -307,17 +292,21 @@ export function ReadinessConsole() {
           <TabsContent value="backtest">
             <Card className="border-white/10 bg-[#14181f]">
               <CardHeader>
-                <CardTitle>Backtest — dynamic long/short/grid at 10x</CardTitle>
+                <CardTitle>Backtest: Turtle trend follower over a year</CardTitle>
                 <CardDescription>
-                  Classifies the regime at every closed 4h bar over roughly a year and walks
-                  the signed-position simulator (protective stop and liquidation modeled).
-                  Measures the strategy; it tunes nothing.
+                  Donchian breakout + ATR sizing on every closed 4h bar for roughly a year. Winners
+                  run to the reversal; each loss is capped near the risk budget. Measures the strategy;
+                  it tunes nothing at run time.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
-                <Button onClick={() => void runBacktest()} disabled={backtesting}>
-                  {backtesting ? "Walking a year of candles\u2026" : "Run 1-year backtest"}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  {[1, 2, 3].map((y) => (
+                    <Button key={y} onClick={() => void runBacktest(y)} disabled={backtesting}>
+                      {backtesting ? "Walking candles..." : `Run ${y}-year backtest`}
+                    </Button>
+                  ))}
+                </div>
                 {backtestError ? (
                   <Alert variant="destructive">
                     <AlertTitle>Backtest failed</AlertTitle>
@@ -327,22 +316,24 @@ export function ReadinessConsole() {
                 {backtest ? (
                   <>
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      <Metric label="Total return (ROE)" value={`${signed(backtest.totalReturnPct)}%`} hint={`${usd(backtest.startEquityUsd, 0)} -> ${usd(backtest.finalEquityUsd, 0)}`} valueClass={pnlClass(backtest.totalReturnPct)} />
+                      <Metric label="CAGR (annualized)" value={`${signed(backtest.cagrPct)}%`} hint={`${usd(backtest.startEquityUsd, 0)} to ${usd(backtest.finalEquityUsd, 0)} · ${signed(backtest.totalReturnPct)}% total`} valueClass={pnlClass(backtest.cagrPct)} />
+                      <Metric label="Sharpe" value={backtest.sharpe === null ? "-" : backtest.sharpe.toFixed(2)} hint={`${backtest.annualVolPct.toFixed(0)}% annual vol`} valueClass={pnlClass(backtest.sharpe ?? 0)} />
                       <Metric label="Max drawdown" value={`-${backtest.maxDrawdownPct.toFixed(1)}%`} hint="peak-to-trough on equity" valueClass="text-rose-300" />
-                      <Metric label="Trades" value={String(backtest.trades)} hint={backtest.winRatePct === null ? "no closed trades" : `${backtest.winRatePct.toFixed(0)}% win rate`} />
-                      <Metric label="Fees" value={usd(backtest.feesUsd)} hint={`${backtest.bars} bars · ${backtest.durationDays.toFixed(0)} days`} valueClass="text-rose-300" />
+                      <Metric label="Trades" value={String(backtest.trades)} hint={`${backtest.winRatePct === null ? "n/a" : `${backtest.winRatePct.toFixed(0)}% win`} · fees ${usd(backtest.feesUsd)} · ${backtest.durationDays.toFixed(0)}d`} />
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <Metric label="Best month" value={`${signed(backtest.bestMonthPct, 1)}%`} hint="single strongest month" valueClass="text-emerald-400" />
+                      <Metric label="Worst month" value={`${signed(backtest.worstMonthPct, 1)}%`} hint="single weakest month" valueClass="text-rose-300" />
+                      <Metric label="Avg month" value={`${signed(backtest.avgMonthPct, 1)}%`} hint={`${backtest.monthsCount} months`} valueClass={pnlClass(backtest.avgMonthPct)} />
+                      <Metric label="Months ≥ 20%" value={`${backtest.monthsAbove20} / ${backtest.monthsCount}`} hint="big momentum months captured" />
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <StatusPill tone={backtest.everLiquidated ? "bad" : "good"}>
                         {backtest.everLiquidated ? `${backtest.liquidations} liquidation(s)` : "no liquidation"}
                       </StatusPill>
                       <StatusPill tone="neutral">{backtest.everShort ? "used shorts" : "long only"}</StatusPill>
-                      <StatusPill tone={backtest.finalEquityUsd >= backtest.startEquityUsd * 0.5 ? "good" : "bad"}>
-                        {backtest.blownUp
-                          ? "account blew up"
-                          : backtest.finalEquityUsd < backtest.startEquityUsd * 0.5
-                            ? "near-total loss"
-                            : "survived"}
+                      <StatusPill tone={backtest.finalEquityUsd >= backtest.startEquityUsd ? "good" : "bad"}>
+                        {backtest.blownUp ? "account blew up" : backtest.finalEquityUsd >= backtest.startEquityUsd ? "profitable" : "net loss"}
                       </StatusPill>
                       <StatusPill tone="neutral">{backtest.marketSource.replaceAll("_", " ")}</StatusPill>
                     </div>
@@ -365,7 +356,7 @@ export function ReadinessConsole() {
                               </TableCell>
                               <TableCell className="text-right font-mono text-xs">{backtest.barsInRegime[r]}</TableCell>
                               <TableCell className="text-right font-mono text-xs">
-                                {backtest.bars ? `${((backtest.barsInRegime[r] / backtest.bars) * 100).toFixed(0)}%` : "\u2014"}
+                                {backtest.bars ? `${((backtest.barsInRegime[r] / backtest.bars) * 100).toFixed(0)}%` : "-"}
                               </TableCell>
                             </TableRow>
                           ))}
@@ -373,13 +364,13 @@ export function ReadinessConsole() {
                       </Table>
                     </div>
                     <p className="text-xs text-zinc-500">
-                      {backtest.epochStart} → {backtest.epochEnd}. {backtest.note}
+                      {backtest.epochStart} to {backtest.epochEnd}. {backtest.note}
                     </p>
                   </>
                 ) : (
                   <p className="text-sm text-zinc-400">
-                    No backtest yet. Run it to see total return, drawdown, per-regime P&amp;L, and
-                    whether 10x survived the year.
+                    No backtest yet. Run it to see total return, drawdown, trade stats, and the
+                    long/short split over the year.
                   </p>
                 )}
               </CardContent>
@@ -389,11 +380,12 @@ export function ReadinessConsole() {
           <TabsContent value="leverage">
             <Card className="border-white/10 bg-[#14181f]">
               <CardHeader>
-                <CardTitle>Leverage &amp; ROE — {usd(leverage.collateralUsd, 0)} at {leverage.leverage}x on Phoenix</CardTitle>
+                <CardTitle>Leverage &amp; ROE: {usd(leverage.collateralUsd, 0)} at {leverage.leverage}x on Phoenix</CardTitle>
                 <CardDescription>
-                  ROE moves {leverage.leverage}x the BTC price. A round trip costs
-                  {" "}{leverage.roundTripFeeRoePct.toFixed(2)}% ROE at taker fees; liquidation is at
-                  {" "}{leverage.liquidationRoePct.toFixed(0)}% ROE ({pct(leverage.liquidationDistancePct)} move). Anchored to {usd(leverage.entryPrice, 0)}.
+                  Reference for the leverage cap. ROE moves {leverage.leverage}x the BTC price; a round trip
+                  costs {leverage.roundTripFeeRoePct.toFixed(2)}% ROE at taker fees; liquidation is at
+                  {" "}{leverage.liquidationRoePct.toFixed(0)}% ROE ({pct(leverage.liquidationDistancePct)} move).
+                  ATR sizing normally keeps effective leverage well below this cap.
                 </CardDescription>
               </CardHeader>
               <CardContent className="overflow-x-auto">
@@ -432,9 +424,9 @@ export function ReadinessConsole() {
               <CardHeader>
                 <CardTitle>Disabled production boundary</CardTitle>
                 <CardDescription>
-                  Spec hash {snapshot.specHash}. Long and short are paper regimes. Enabling
-                  live writes requires a separate explicit authorization; there is no write
-                  adapter and no credential import.
+                  Spec hash {snapshot.specHash}. Long and short are paper regimes. Enabling live writes
+                  requires a separate explicit authorization; there is no write adapter and no credential
+                  import.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 text-sm leading-6 text-zinc-300">
@@ -447,10 +439,10 @@ export function ReadinessConsole() {
                 <Separator className="bg-white/10" />
                 <p>{snapshot.production.statement}</p>
                 <Button variant="destructive" onClick={() => void paperKill()} disabled={killing}>
-                  {killing ? "Flattening paper book\u2026" : "Paper kill switch"}
+                  {killing ? "Flattening paper book..." : "Paper kill switch"}
                 </Button>
                 <p className="text-xs text-zinc-500">
-                  The paper kill switch forces the regime FLAT. It does not touch an exchange.
+                  The paper kill switch forces the position flat. It does not touch an exchange.
                 </p>
               </CardContent>
             </Card>

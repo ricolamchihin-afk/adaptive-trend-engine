@@ -1,4 +1,4 @@
-import { VENUES } from "./spec";
+import { STRATEGY, VENUES } from "./spec";
 import type { VenueId } from "./types";
 
 // Usable-equity haircut before liquidation. Matches estimatedLiquidationPrice in
@@ -106,8 +106,8 @@ export function leverageTable(
 // to the current mark. Capital and leverage follow VSCODE.md (Phoenix, 1000 USDC).
 export function phoenixLeverageTable(entryPrice: number): LeverageTable {
   return leverageTable({
-    collateralUsd: 1000,
-    leverage: 10,
+    collateralUsd: STRATEGY.capitalUsd,
+    leverage: STRATEGY.leverage,
     entryPrice: entryPrice > 0 ? entryPrice : 100_000,
     feeRatePerSide: venueFeeRatePerSide("phoenix", "taker"),
   });
@@ -115,6 +115,6 @@ export function phoenixLeverageTable(entryPrice: number): LeverageTable {
 
 // Maker-fee round-trip drag, shown next to the taker table so the fee comparison
 // the operator cares about is explicit rather than implied.
-export function phoenixMakerRoundTripRoePct(leverage = 10): number {
+export function phoenixMakerRoundTripRoePct(leverage = STRATEGY.leverage): number {
   return 2 * leverage * venueFeeRatePerSide("phoenix", "maker") * 100;
 }

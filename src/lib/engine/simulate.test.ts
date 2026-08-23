@@ -1,89 +1,107 @@
 import { describe, expect, it } from "vitest";
 import { FOUR_HOUR_MS, makeCandle } from "./candles";
-import { defaultSimConfig, runSimulation, type RegimeBar } from "./simulate";
-import type { Regime } from "./types";
+import { defaultSimConfig, runSimulation } from "./simulate";
+import type { Feature } from "./strategy";
 
+const cfg = defaultSimConfig();
 let t = Date.UTC(2026, 0, 1, 0, 0, 0);
-function bar(regime: Regime, open: number, high: number, low: number, close: number): RegimeBar {
+
+function feat(
+  o: number,
+  h: number,
+  l: number,
+  c: number,
+  extra: Partial<Feature>,
+): Feature {
   t += FOUR_HOUR_MS;
   return {
-    regime,
-    pathMode: "low_first",
-    candle: makeCandle({ openTime: t, intervalMs: FOUR_HOUR_MS, open, high, low, close }),
+    candle: makeCandle({ openTime: t, intervalMs: FOUR_HOUR_MS, open: o, high: h, low: l, close: c }),
+    entryHigh: null,
+    entryLow: null,
+    exitHigh: null,
+    exitLow: null,
+    atr: 500,
+    adx: 30, // above the trend-strength gate so entries can fire in tests
+    dailyDir: 0,
+    ...extra,
   };
 }
 
-const cfg = defaultSimConfig();
-
-describe("dynamic directional simulator", () => {
-  it("profits from a clean uptrend while LONG and never goes short", () => {
+describe("turtle trend simulator", () => {
+  it("rides an uptrend long and profits, never short", () => {
+    const feats: Feature[] = [];
     let price = 100_000;
-    const bars: RegimeBar[] = [];
-    for (let i = 0; i < 10; i += 1) {
+    for (let i = 0; i < 8; i += 1) {
       const open = price;
-      const close = price * 1.02;
-      bars.push(bar("LONG", open, close * 1.001, open * 0.999, close));
+      const close = price * 1.01;
+      feats.push(
+        feat(open, close * 1.001, open * 0.999, close, {
+          entryHigh: i === 0 ? open * 0.9999 : price * 0.9, // triggers the initial breakout
+          exitLow: open * 0.97, // trails below, never stops out in the uptrend
+          dailyDir: 1,
+        }),
+      );
       price = close;
     }
-    const r = runSimulation(bars, cfg);
+    const r = runSimulation(feats, cfg);
     expect(r.finalEquityUsd).toBeGreaterThan(r.startEquityUsd);
     expect(r.everShort).toBe(false);
     expect(r.everLiquidated).toBe(false);
-    expect(r.blownUp).toBe(false);
-    expect(r.perRegimePnlUsd.LONG).toBeGreaterThan(0);
   });
 
-  it("profits from a downtrend while SHORT and marks everShort", () => {
+  it("rides a downtrend short and profits", () => {
+    const feats: Feature[] = [];
     let price = 100_000;
-    const bars: RegimeBar[] = [];
-    for (let i = 0; i < 10; i += 1) {
+    for (let i = 0; i < 8; i += 1) {
       const open = price;
-      const close = price * 0.98;
-      bars.push(bar("SHORT", open, open * 1.001, close, close));
+      const close = price * 0.99;
+      feats.push(
+        feat(open, open * 1.001, close * 0.999, close, {
+          entryLow: i === 0 ? open * 1.0001 : price * 1.1, // triggers the initial breakdown
+          exitHigh: open * 1.03, // trails above, never stops out in the downtrend
+          dailyDir: -1,
+        }),
+      );
       price = close;
     }
-    const r = runSimulation(bars, cfg);
+    const r = runSimulation(feats, cfg);
     expect(r.finalEquityUsd).toBeGreaterThan(r.startEquityUsd);
     expect(r.everShort).toBe(true);
     expect(r.everLiquidated).toBe(false);
-    expect(r.perRegimePnlUsd.SHORT).toBeGreaterThan(0);
   });
 
-  it("caps a loss at the protective stop before liquidation", () => {
-    const bars: RegimeBar[] = [
-      bar("LONG", 100_000, 100_500, 99_800, 100_200),
-      // adverse 5% intrabar: below the 4% stop, above the 9% liquidation
-      bar("LONG", 100_200, 100_300, 95_000, 96_000),
+  it("caps a losing trade near the risk-per-trade budget", () => {
+    const feats: Feature[] = [
+      feat(100_000, 100_200, 99_900, 100_050, { entryHigh: 99_990, exitLow: 98_000, dailyDir: 1 }),
+      feat(99_500, 99_600, 98_000, 98_500, { exitLow: 98_000, dailyDir: 1 }),
     ];
-    const r = runSimulation(bars, cfg);
+    const r = runSimulation(feats, cfg);
+    // A full stop-out loses ~riskPct of equity (plus fees), whatever riskPct is set to.
+    const loss = r.startEquityUsd - r.finalEquityUsd;
+    const budget = cfg.capitalUsd * cfg.riskPct;
     expect(r.everLiquidated).toBe(false);
-    // ~4% adverse on 10x = ~ -40% of the $1,000 book, plus fees
-    expect(r.finalEquityUsd).toBeGreaterThan(540);
-    expect(r.finalEquityUsd).toBeLessThan(620);
+    expect(loss).toBeGreaterThan(budget * 0.8);
+    expect(loss).toBeLessThan(budget * 1.5);
   });
 
-  it("records a liquidation on a violent adverse gap", () => {
-    const bars: RegimeBar[] = [
-      bar("LONG", 100_000, 100_500, 99_800, 100_200),
-      bar("LONG", 100_200, 100_300, 88_000, 90_000),
-    ];
-    const r = runSimulation(bars, cfg);
-    expect(r.everLiquidated).toBe(true);
-    expect(r.liquidations).toBeGreaterThanOrEqual(1);
-    expect(r.finalEquityUsd).toBeLessThan(r.startEquityUsd);
-  });
-
-  it("harvests a bounded range in GRID without blowing up or going short-net", () => {
-    const bars: RegimeBar[] = [bar("GRID", 100_000, 100_100, 99_900, 100_000)];
-    for (let i = 0; i < 12; i += 1) {
-      // oscillate down to a buy rung then back up through the sell target
-      bars.push(bar("GRID", 100_000, 100_300, 98_500, 100_000));
+  it("stays flat when the daily filter is neutral", () => {
+    const feats: Feature[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      feats.push(feat(100_000, 101_000, 99_000, 100_500, { entryHigh: 99_000, entryLow: 99_500, dailyDir: 0 }));
     }
-    const r = runSimulation(bars, cfg);
+    const r = runSimulation(feats, cfg);
+    expect(r.trades).toBe(0);
+    expect(r.finalEquityUsd).toBe(r.startEquityUsd);
+  });
+
+  it("caps leverage so a tiny ATR cannot oversize the position", () => {
+    const feats: Feature[] = [
+      feat(100_000, 100_100, 99_950, 100_050, { entryHigh: 99_990, exitLow: 98_000, atr: 10, dailyDir: 1 }),
+      feat(100_050, 101_050, 100_000, 101_000, { exitLow: 98_000, atr: 10, dailyDir: 1 }),
+    ];
+    const r = runSimulation(feats, cfg);
+    // +~1% price move; at the 10x cap that is ~+10% ROE, not +100%+ if uncapped.
+    expect(r.totalReturnPct).toBeLessThan(20);
     expect(r.blownUp).toBe(false);
-    expect(r.everShort).toBe(false);
-    expect(r.everLiquidated).toBe(false);
-    expect(r.trades).toBeGreaterThan(0);
-    expect(Number.isFinite(r.finalEquityUsd)).toBe(true);
   });
 });

@@ -1,125 +1,85 @@
 import { usableAt } from "./candles";
-import {
-  adxWilder,
-  closesOf,
-  emaSeries,
-  lastEma,
-  rsiWilder,
-} from "./indicators";
+import { adxWilder, atr, closesOf, highestHigh, lastEma, lowestLow } from "./indicators";
 import { STRATEGY } from "./spec";
-import type { MarketSeries, RegimeDecision, RegimeReading } from "./types";
+import type { Candle, MarketSeries } from "./types";
 
-// Classifies the regime from the daily + 4h trend context at a decision time.
-// Uses only candles that closed at or before decisionTime (no lookahead).
-export function classifyRegime(
-  series: MarketSeries,
-  decisionTime: number,
-): RegimeDecision {
-  const s = STRATEGY;
-  const daily = usableAt(series.daily, decisionTime);
-  const fourHour = usableAt(series.fourHour, decisionTime);
-  const dailyCloses = closesOf(daily);
-  const fourCloses = closesOf(fourHour);
+export interface Feature {
+  candle: Candle;
+  // Donchian entry channel (highest high / lowest low of the prior N bars).
+  entryHigh: number | null;
+  entryLow: number | null;
+  // Donchian exit channel (prior M bars) used as the trailing stop.
+  exitHigh: number | null;
+  exitLow: number | null;
+  atr: number | null;
+  // 4h ADX (trend strength) over the prior bars.
+  adx: number | null;
+  // Daily trend filter: +1 above the daily EMA, -1 below, 0 unavailable.
+  dailyDir: 1 | -1 | 0;
+}
 
-  const dailyEma = lastEma(dailyCloses, s.dailyEmaPeriod);
-  const lastDaily = daily[daily.length - 1];
-  const dailyBullish =
-    lastDaily && dailyEma !== null ? lastDaily.close > dailyEma : null;
+export interface FeatureParams {
+  donchianEntry: number;
+  donchianExit: number;
+  atrPeriod: number;
+  adxPeriod: number;
+  dailyEmaPeriod: number;
+}
 
-  const fourEmaSeries = emaSeries(fourCloses, s.fourHourEmaPeriod);
-  const fourEma = fourEmaSeries.length ? fourEmaSeries[fourEmaSeries.length - 1] : null;
-  const prevFourEma =
-    fourEmaSeries.length >= 2 ? fourEmaSeries[fourEmaSeries.length - 2] : null;
-  const lastFour = fourHour[fourHour.length - 1];
-  const fourAdx = adxWilder(
-    fourHour.map((c) => c.high),
-    fourHour.map((c) => c.low),
-    fourCloses,
-    s.fourHourAdxPeriod,
-  );
-  const fourRsi = rsiWilder(fourCloses, s.rsiPeriod);
-
-  const canDirect =
-    lastFour && fourEma !== null && prevFourEma !== null;
-  const fourHourUp = canDirect
-    ? lastFour.close > fourEma && fourEma > prevFourEma
-    : null;
-  const fourHourDown = canDirect
-    ? lastFour.close < fourEma && fourEma < prevFourEma
-    : null;
-
-  const eligible =
-    dailyBullish !== null &&
-    fourHourUp !== null &&
-    fourAdx !== null &&
-    fourRsi !== null;
-  const trending = fourAdx !== null && fourAdx >= s.adxTrendThreshold;
-
-  let regime: RegimeDecision["regime"];
-  let reason: string;
-  if (!eligible) {
-    regime = "FLAT";
-    reason = "context_unavailable";
-  } else if (fourRsi! >= s.rsiTailHigh || fourRsi! <= s.rsiTailLow) {
-    regime = "FLAT";
-    reason = "rsi_tail_risk";
-  } else if (trending && dailyBullish === true && fourHourUp === true) {
-    regime = "LONG";
-    reason = "daily_and_4h_trending_up";
-  } else if (trending && dailyBullish === false && fourHourDown === true) {
-    regime = "SHORT";
-    reason = "daily_and_4h_trending_down";
-  } else if (!trending) {
-    regime = "GRID";
-    reason = "ranging_no_trend";
-  } else {
-    regime = "FLAT";
-    reason = "trend_conflict";
+function dailyDirAt(series: MarketSeries, time: number, emaPeriod: number): 1 | -1 | 0 {
+  const daily = usableAt(series.daily, time);
+  const closes = closesOf(daily);
+  const ema = lastEma(closes, emaPeriod);
+  const last = daily[daily.length - 1];
+  if (!last || ema === null) {
+    return 0;
   }
+  return last.close > ema ? 1 : -1;
+}
 
-  const readings: RegimeReading[] = [
-    {
-      id: "daily_ema",
-      name: "Daily EMA20 context",
-      timeframe: "1d",
-      formatted: dailyBullish === null ? "unavailable" : dailyBullish ? "above" : "below",
-      effect: "Sets the directional bias (bull -> long side, bear -> short side).",
-    },
-    {
-      id: "four_hour_dir",
-      name: "4h EMA20 slope + close",
-      timeframe: "4h",
-      formatted:
-        fourHourUp === null ? "unavailable" : fourHourUp ? "up" : fourHourDown ? "down" : "flat",
-      effect: "Confirms the 4h trend direction that must agree with the daily bias.",
-    },
-    {
-      id: "four_hour_adx",
-      name: "4h ADX",
-      timeframe: "4h",
-      formatted: fourAdx === null ? "unavailable" : fourAdx.toFixed(1),
-      effect: `Trend if >= ${s.adxTrendThreshold}; otherwise the market is ranging and the grid runs.`,
-    },
-    {
-      id: "four_hour_rsi",
-      name: "4h RSI",
-      timeframe: "4h",
-      formatted: fourRsi === null ? "unavailable" : fourRsi.toFixed(1),
-      effect: `Tail halt outside ${s.rsiTailLow}-${s.rsiTailHigh}; the book goes flat.`,
-    },
-  ];
+// Precomputes trend-following features on the 4h series using only closed bars
+// strictly before each bar (Donchian and ATR look back, never at the current bar).
+export function buildFeatures(
+  series: MarketSeries,
+  params: Partial<FeatureParams> = {},
+): Feature[] {
+  const n = params.donchianEntry ?? STRATEGY.donchianEntry;
+  const m = params.donchianExit ?? STRATEGY.donchianExit;
+  const p = params.atrPeriod ?? STRATEGY.atrPeriod;
+  const adxPeriod = params.adxPeriod ?? STRATEGY.adxPeriod;
+  const dailyEmaPeriod = params.dailyEmaPeriod ?? STRATEGY.dailyEmaPeriod;
+  const bars = series.fourHour;
+  const adxWindow = adxPeriod * 4;
 
-  return {
-    decisionTime,
-    regime,
-    reason,
-    dailyBullish,
-    fourHourUp,
-    fourHourDown,
-    fourHourAdx: fourAdx,
-    fourHourRsi: fourRsi,
-    trending,
-    eligible,
-    readings,
-  };
+  return bars.map((candle, i) => {
+    const priorEntry = bars.slice(Math.max(0, i - n), i);
+    const priorExit = bars.slice(Math.max(0, i - m), i);
+    const atrBars = bars.slice(Math.max(0, i - (p + 1)), i);
+    const adxBars = bars.slice(Math.max(0, i - adxWindow), i);
+    const haveEntry = i >= n;
+    const haveExit = i >= m;
+    return {
+      candle,
+      entryHigh: haveEntry ? highestHigh(priorEntry.map((c) => c.high)) : null,
+      entryLow: haveEntry ? lowestLow(priorEntry.map((c) => c.low)) : null,
+      exitHigh: haveExit ? highestHigh(priorExit.map((c) => c.high)) : null,
+      exitLow: haveExit ? lowestLow(priorExit.map((c) => c.low)) : null,
+      atr:
+        atrBars.length >= p + 1
+          ? atr(
+              atrBars.map((c) => c.high),
+              atrBars.map((c) => c.low),
+              atrBars.map((c) => c.close),
+              p,
+            )
+          : null,
+      adx: adxWilder(
+        adxBars.map((c) => c.high),
+        adxBars.map((c) => c.low),
+        adxBars.map((c) => c.close),
+        adxPeriod,
+      ),
+      dailyDir: dailyDirAt(series, candle.openTime, dailyEmaPeriod),
+    };
+  });
 }

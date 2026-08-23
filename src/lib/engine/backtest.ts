@@ -1,6 +1,6 @@
-import { defaultSimConfig, runSimulation, type RegimeBar } from "./simulate";
-import { classifyRegime } from "./strategy";
+import { defaultSimConfig, runSimulation, type SimConfig } from "./simulate";
 import { STRATEGY } from "./spec";
+import { buildFeatures, type FeatureParams } from "./strategy";
 import type { MarketSeries, MarketSource, Regime } from "./types";
 
 export interface BacktestReport {
@@ -10,11 +10,21 @@ export interface BacktestReport {
   bars: number;
   durationDays: number;
   marketSource: MarketSource;
+  requestedYears: number;
   capitalUsd: number;
-  leverage: number;
+  maxLeverage: number;
   startEquityUsd: number;
   finalEquityUsd: number;
   totalReturnPct: number;
+  cagrPct: number;
+  sharpe: number | null;
+  annualVolPct: number;
+  bestMonthPct: number;
+  worstMonthPct: number;
+  avgMonthPct: number;
+  monthsAbove20: number;
+  monthsCount: number;
+  monthlyReturnsPct: number[];
   maxDrawdownPct: number;
   trades: number;
   winRatePct: number | null;
@@ -28,40 +38,51 @@ export interface BacktestReport {
   note: string;
 }
 
-// Backtests the dynamic long/short/grid strategy on the 4h execution timeframe.
-// Regime is classified from the daily + 4h context at each closed bar, then the
-// signed-position simulator walks the bars. 4h keeps a full year in one feed.
+// Backtests the Turtle-style trend follower on the 4h execution timeframe over
+// roughly a year. Features look back only at closed bars, so there is no lookahead.
 export function runBacktest(
   series: MarketSeries,
   marketSource: MarketSource,
+  requestedYears = 1,
+  configOverride?: Partial<SimConfig>,
+  featureOverride?: Partial<FeatureParams>,
 ): BacktestReport {
   const exec = series.fourHour;
   if (!exec.length) {
     throw new Error("no_four_hour_candles");
   }
 
-  const bars: RegimeBar[] = exec.map((candle) => ({
-    candle,
-    regime: classifyRegime(series, candle.openTime).regime,
-    pathMode: "low_first" as const,
-  }));
-
-  const result = runSimulation(bars, defaultSimConfig());
+  const features = buildFeatures(series, featureOverride);
+  const result = runSimulation(features, { ...defaultSimConfig(), ...configOverride });
   const first = exec[0].openTime;
   const last = exec[exec.length - 1].openTime;
+  const durationDays = (last - first) / 86_400_000;
+  const years = durationDays / 365;
+  const growth = result.finalEquityUsd / result.startEquityUsd;
+  const cagrPct = years > 0 && growth > 0 ? (growth ** (1 / years) - 1) * 100 : 0;
 
   return {
     epochStart: new Date(first).toISOString(),
     epochEnd: new Date(last).toISOString(),
     executionTimeframe: "4h",
     bars: exec.length,
-    durationDays: (last - first) / 86_400_000,
+    durationDays,
     marketSource,
+    requestedYears,
     capitalUsd: STRATEGY.capitalUsd,
-    leverage: STRATEGY.leverage,
+    maxLeverage: STRATEGY.maxLeverage,
     startEquityUsd: result.startEquityUsd,
     finalEquityUsd: result.finalEquityUsd,
     totalReturnPct: result.totalReturnPct,
+    cagrPct,
+    sharpe: result.sharpe,
+    annualVolPct: result.annualVolPct,
+    bestMonthPct: result.bestMonthPct,
+    worstMonthPct: result.worstMonthPct,
+    avgMonthPct: result.avgMonthPct,
+    monthsAbove20: result.monthsAbove20,
+    monthsCount: result.monthsCount,
+    monthlyReturnsPct: result.monthlyReturnsPct,
     maxDrawdownPct: result.maxDrawdownPct,
     trades: result.trades,
     winRatePct: result.winRatePct,
@@ -74,7 +95,7 @@ export function runBacktest(
     blownUp: result.blownUp,
     note:
       marketSource === "hyperliquid_public"
-        ? "Dynamic long/short/grid at 10x on 4h closed public candles. Paper only; no live orders."
+        ? "Turtle-style trend follower (Donchian + ATR sizing) at up to 10x on 4h closed public candles. Paper only; no live orders."
         : "Offline synthetic candles. Labeled and not evidence.",
   };
 }

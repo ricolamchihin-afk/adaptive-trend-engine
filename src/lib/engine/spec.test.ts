@@ -23,17 +23,17 @@ describe("dynamic directional specification", () => {
   it("hashes the strategy spec deterministically", () => {
     expect(SPEC_HASH).toMatch(/^[a-f0-9]{64}$/);
     expect(hashFrozenSpec()).toBe(SPEC_HASH);
-    expect(FROZEN_SPEC.strategy).toBe("dynamic_directional_exposure");
+    expect(FROZEN_SPEC.strategy).toBe("turtle_trend_following");
     expect(FROZEN_SPEC.regimes).toContain("SHORT");
-    expect(FROZEN_SPEC.retired).toContain("80");
+    expect(FROZEN_SPEC.retired.join(" ")).toContain("80");
   });
 
-  it("uses Phoenix, 1000 USDC at 10x", () => {
+  it("uses Phoenix, 1000 USDC at the 20x leverage cap", () => {
     expect(STRATEGY.venue).toBe("phoenix");
     expect(STRATEGY.capitalUsd).toBe(1000);
-    expect(STRATEGY.leverage).toBe(10);
-    expect(directionalNotionalUsd(1000)).toBe(10_000);
-    expect(directionalNotionalUsd(1500)).toBe(15_000);
+    expect(STRATEGY.leverage).toBe(20);
+    expect(directionalNotionalUsd(1000)).toBe(20_000);
+    expect(directionalNotionalUsd(1500)).toBe(30_000);
   });
 
   it("exposes the Phoenix fee schedule", () => {

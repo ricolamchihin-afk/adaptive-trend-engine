@@ -42,11 +42,12 @@ describe("leverage ROE math", () => {
     expect(row.roePct - row.netRoePct).toBeGreaterThan(0);
   });
 
-  it("phoenix helper uses 1000 USDC at 10x", () => {
+  it("phoenix helper uses 1000 USDC at the configured leverage", () => {
     const table = phoenixLeverageTable(80_000);
     expect(table.collateralUsd).toBe(1000);
-    expect(table.leverage).toBe(10);
-    expect(table.notionalUsd).toBe(10_000);
-    expect(table.roundTripFeeRoePct).toBeCloseTo(0.8, 6);
+    expect(table.leverage).toBe(20);
+    expect(table.notionalUsd).toBe(20_000);
+    // round-trip taker fee ROE = 2 * leverage * 0.0004
+    expect(table.roundTripFeeRoePct).toBeCloseTo(1.6, 6);
   });
 });

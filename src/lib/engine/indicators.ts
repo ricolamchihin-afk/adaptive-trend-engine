@@ -91,6 +91,35 @@ export function trueRange(
   );
 }
 
+// Wilder ATR over the given period. Needs period + 1 candles.
+export function atr(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  period: number,
+): number | null {
+  if (highs.length < period + 1) {
+    return null;
+  }
+  const trs: number[] = [];
+  for (let i = 1; i < highs.length; i += 1) {
+    trs.push(trueRange(highs[i], lows[i], closes[i - 1]));
+  }
+  let value = trs.slice(0, period).reduce((sum, tr) => sum + tr, 0) / period;
+  for (let i = period; i < trs.length; i += 1) {
+    value = (value * (period - 1) + trs[i]) / period;
+  }
+  return value;
+}
+
+export function highestHigh(values: number[]): number | null {
+  return values.length ? Math.max(...values) : null;
+}
+
+export function lowestLow(values: number[]): number | null {
+  return values.length ? Math.min(...values) : null;
+}
+
 export function adxWilder(
   highs: number[],
   lows: number[],

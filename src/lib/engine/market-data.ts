@@ -222,11 +222,14 @@ export async function loadMarket(
 // One-year market for the backtest: daily context (with EMA warmup) plus a full
 // year of 4h execution candles. The regime classifier only needs daily + 4h, so
 // no long 1m/15m history the public feed cannot serve is required.
-export async function loadYearMarket(now = Date.now()): Promise<MarketSnapshot> {
+export async function loadYearMarket(
+  now = Date.now(),
+  days = 365,
+): Promise<MarketSnapshot> {
   try {
     const [daily, fourHour, assetCtx] = await Promise.all([
-      fetchCandles("1d", DAY_MS, 420 * DAY_MS, now),
-      fetchCandles("4h", FOUR_HOUR_MS, 365 * DAY_MS, now),
+      fetchCandles("1d", DAY_MS, (days + 90) * DAY_MS, now),
+      fetchCandles("4h", FOUR_HOUR_MS, days * DAY_MS, now),
       postInfo({ type: "metaAndAssetCtxs" }).catch(() => null),
     ]);
     const series: MarketSeries = {
