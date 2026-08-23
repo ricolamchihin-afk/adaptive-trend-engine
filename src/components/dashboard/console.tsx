@@ -56,6 +56,38 @@ const DEFAULT_LAB: LabParams = {
   rsiShortMax: 100,
 };
 
+interface DryRunResponse {
+  generatedAt: string;
+  liveTradingEnabled: boolean;
+  liveExecutionAvailable: boolean;
+  exchange: string;
+  accountLabel: string;
+  credentialsPresent: boolean;
+  config: {
+    capitalUsd: number;
+    maxLeverage: number;
+    riskPct: number;
+    maxNotionalUsd: number;
+    dailyLossLimitUsd: number;
+    maxDrawdownPct: number;
+  };
+  market: { mark: number; source: string };
+  plan: {
+    action: string;
+    side: string;
+    sizeBtc: number;
+    notionalUsd: number;
+    entryPrice: number;
+    stopPrice: number | null;
+    effectiveLeverage: number;
+    notionalCapped: boolean;
+    dryRun: boolean;
+    liveSubmitted: boolean;
+    note: string;
+  };
+  note: string;
+}
+
 const LAB_FIELDS: Array<{ key: keyof LabParams; label: string; step?: number; hint: string }> = [
   { key: "years", label: "Years", hint: "1-3 (4h feed caps ~2.3y)" },
   { key: "riskPct", label: "Risk % / trade", step: 0.5, hint: "ATR volatility sizing" },
@@ -123,6 +155,9 @@ export function ReadinessConsole() {
   const [backtestError, setBacktestError] = useState<string | null>(null);
   const [backtesting, setBacktesting] = useState(false);
   const [lab, setLab] = useState<LabParams>(DEFAULT_LAB);
+  const [dryRun, setDryRun] = useState<DryRunResponse | null>(null);
+  const [dryRunError, setDryRunError] = useState<string | null>(null);
+  const [dryRunning, setDryRunning] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -161,6 +196,21 @@ export function ReadinessConsole() {
       window.clearInterval(timer);
     };
   }, []);
+
+  async function runDryRun() {
+    setDryRunning(true);
+    setDryRunError(null);
+    try {
+      const response = await fetch("/api/dry-run", { cache: "no-store" });
+      const data = (await response.json()) as DryRunResponse & { error?: string };
+      if (!response.ok) throw new Error(data.error || "dry_run_failed");
+      setDryRun(data);
+    } catch (err) {
+      setDryRunError(err instanceof Error ? err.message : "dry_run_failed");
+    } finally {
+      setDryRunning(false);
+    }
+  }
 
   async function paperKill() {
     setKilling(true);
@@ -351,6 +401,7 @@ export function ReadinessConsole() {
         <Tabs defaultValue="backtest" className="space-y-4">
           <TabsList className="bg-[#14181f]">
             <TabsTrigger value="backtest">Backtest lab</TabsTrigger>
+            <TabsTrigger value="dryrun">Dry run</TabsTrigger>
             <TabsTrigger value="leverage">Leverage &amp; ROE</TabsTrigger>
             <TabsTrigger value="boundary">Production boundary</TabsTrigger>
           </TabsList>
@@ -456,6 +507,75 @@ export function ReadinessConsole() {
                   <p className="text-sm text-zinc-400">
                     No backtest yet. Run it to see total return, drawdown, trade stats, and the
                     long/short split over the year.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="dryrun">
+            <Card className="border-white/10 bg-[#14181f]">
+              <CardHeader>
+                <CardTitle>Dry run: intended order from the live signal</CardTitle>
+                <CardDescription>
+                  Reads your <code>.env</code> config and shows the exact order the strategy would
+                  place right now, sized and clamped by your risk limits. Nothing is submitted: there
+                  is no exchange write adapter. Restart the dev server after editing <code>.env</code>.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <Button onClick={() => void runDryRun()} disabled={dryRunning}>
+                  {dryRunning ? "Computing..." : "Run dry run"}
+                </Button>
+                {dryRunError ? (
+                  <Alert variant="destructive">
+                    <AlertTitle>Dry run failed</AlertTitle>
+                    <AlertDescription>{dryRunError}</AlertDescription>
+                  </Alert>
+                ) : null}
+                {dryRun ? (
+                  <>
+                    <Alert className="border-amber-500/30 bg-amber-500/5 text-amber-100">
+                      <AlertTitle>Dry run — no orders are sent</AlertTitle>
+                      <AlertDescription className="text-amber-100/80">
+                        live_actions_enabled = false · write adapter = null · liveSubmitted ={" "}
+                        {String(dryRun.plan.liveSubmitted)}. {dryRun.note}
+                      </AlertDescription>
+                    </Alert>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <Row k="Exchange" v={dryRun.exchange} />
+                      <Row k="Account label" v={dryRun.accountLabel || "(none)"} />
+                      <Row k="API credentials" v={dryRun.credentialsPresent ? "present" : "not set"} />
+                      <Row k="Capital" v={usd(dryRun.config.capitalUsd, 0)} />
+                      <Row k="Max leverage" v={`${dryRun.config.maxLeverage}x`} />
+                      <Row k="Risk / trade" v={`${(dryRun.config.riskPct * 100).toFixed(1)}%`} />
+                      <Row k="Max notional" v={dryRun.config.maxNotionalUsd ? usd(dryRun.config.maxNotionalUsd, 0) : "uncapped"} />
+                      <Row k="Daily loss limit" v={dryRun.config.dailyLossLimitUsd ? usd(dryRun.config.dailyLossLimitUsd, 0) : "unset"} />
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Planned order</p>
+                        <StatusPill tone={dryRun.plan.action === "OPEN_LONG" ? "good" : dryRun.plan.action === "OPEN_SHORT" ? "warn" : "neutral"}>
+                          {dryRun.plan.action.replaceAll("_", " ")}
+                        </StatusPill>
+                      </div>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <Row k="Side" v={dryRun.plan.side} />
+                        <Row k="Size" v={`${Math.abs(dryRun.plan.sizeBtc).toFixed(5)} BTC`} />
+                        <Row k="Notional" v={usd(dryRun.plan.notionalUsd, 0)} />
+                        <Row k="Eff. leverage" v={`${dryRun.plan.effectiveLeverage.toFixed(1)}x`} />
+                        <Row k="Entry (mark)" v={usd(dryRun.plan.entryPrice, 0)} />
+                        <Row k="Initial stop" v={dryRun.plan.stopPrice ? usd(dryRun.plan.stopPrice, 0) : "-"} valueClass="text-rose-300" />
+                        <Row k="Notional capped" v={dryRun.plan.notionalCapped ? "yes (risk limit)" : "no"} />
+                        <Row k="Submitted" v={String(dryRun.plan.liveSubmitted)} valueClass="text-rose-300" />
+                      </div>
+                      <p className="mt-3 text-xs text-zinc-500">{dryRun.plan.note}</p>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-zinc-400">
+                    Fill in <code>.env</code>, then run the dry run to preview the order the strategy
+                    would place — without sending anything.
                   </p>
                 )}
               </CardContent>
