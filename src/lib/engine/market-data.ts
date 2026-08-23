@@ -71,7 +71,7 @@ function btcFundingRate(payload: unknown): number | null {
   return Number.isFinite(rate) ? rate : null;
 }
 
-function syntheticSeries(now: number): MarketSeries {
+export function syntheticSeries(now: number): MarketSeries {
   const startDaily = now - 120 * DAY_MS;
   const daily: Candle[] = [];
   let price = 95_000;

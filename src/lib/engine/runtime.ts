@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadMarket, type MarketSnapshot } from "./market-data";
+import { phoenixLeverageTable, phoenixMakerRoundTripRoePct } from "./leverage";
 import { evaluatePromotion } from "./promotion";
 import { productionBoundary } from "./production";
 import { EPOCH_ID, EPOCH_TITLE, SELECTED_CANDIDATE, SPEC_HASH, VENUES } from "./spec";
@@ -156,6 +157,10 @@ export async function getSnapshot() {
     production: productionBoundary(),
     hierarchy,
     allocation,
+    leverage: {
+      ...phoenixLeverageTable(mark),
+      makerRoundTripFeeRoePct: phoenixMakerRoundTripRoePct(10),
+    },
     mandates: summaries.map((row) => ({
       ...row,
       books: row.books.map((book) => ({

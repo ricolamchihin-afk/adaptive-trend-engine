@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Snapshot } from "@/lib/engine/runtime";
+import type { BacktestReport } from "@/lib/engine/backtest";
 import type { VenueConfirmation } from "@/lib/engine/types";
 import { hours, pct, usd } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,9 @@ export function ReadinessConsole() {
   const [saving, setSaving] = useState(false);
   const [venues, setVenues] = useState<VenueConfirmation[]>([]);
   const [killing, setKilling] = useState(false);
+  const [backtest, setBacktest] = useState<BacktestReport | null>(null);
+  const [backtestError, setBacktestError] = useState<string | null>(null);
+  const [backtesting, setBacktesting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -152,6 +156,23 @@ export function ReadinessConsole() {
       await load();
     } finally {
       setKilling(false);
+    }
+  }
+
+  async function runBacktest() {
+    setBacktesting(true);
+    setBacktestError(null);
+    try {
+      const response = await fetch("/api/backtest", { cache: "no-store" });
+      const data = (await response.json()) as BacktestReport & { error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "backtest_failed");
+      }
+      setBacktest(data);
+    } catch (err) {
+      setBacktestError(err instanceof Error ? err.message : "backtest_failed");
+    } finally {
+      setBacktesting(false);
     }
   }
 
@@ -417,6 +438,8 @@ export function ReadinessConsole() {
         <Tabs defaultValue="gates" className="space-y-4">
           <TabsList className="bg-[#14181f]">
             <TabsTrigger value="gates">Promotion gates</TabsTrigger>
+            <TabsTrigger value="leverage">Leverage &amp; ROE</TabsTrigger>
+            <TabsTrigger value="backtest">Backtest</TabsTrigger>
             <TabsTrigger value="books">Conservative books</TabsTrigger>
             <TabsTrigger value="intents">Dry-run intents</TabsTrigger>
             <TabsTrigger value="venues">Venue registry</TabsTrigger>
@@ -452,6 +475,185 @@ export function ReadinessConsole() {
                     </div>
                   ))}
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="leverage">
+            <Card className="border-white/10 bg-[#14181f]">
+              <CardHeader>
+                <CardTitle>Leverage &amp; ROE — 1000 USDC at 10x on Phoenix</CardTitle>
+                <CardDescription>
+                  Long BTC on Phoenix taker fees, anchored to the current mark
+                  ({usd(snapshot.leverage.entryPrice, 0)}). ROE moves 10x the BTC price
+                  because collateral is levered 10x. A move to the liquidation distance wipes
+                  the margin. This is a paper sizing calculator; it places no orders.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <Row k="Collateral" v={usd(snapshot.leverage.collateralUsd, 0)} />
+                  <Row k="Position notional" v={usd(snapshot.leverage.notionalUsd, 0)} />
+                  <Row k="Position size" v={`${snapshot.leverage.sizeBtc.toFixed(5)} BTC`} />
+                  <Row
+                    k="Liquidation"
+                    v={`${usd(snapshot.leverage.liquidationPrice, 0)} (${pct(snapshot.leverage.liquidationDistancePct)})`}
+                    valueClass="text-rose-300"
+                  />
+                </div>
+                <Alert className="border-amber-500/30 bg-amber-500/5 text-amber-100">
+                  <AlertTitle>Fees are a fixed drag on every round trip</AlertTitle>
+                  <AlertDescription className="text-amber-100/80">
+                    Opening and closing 10x notional costs {snapshot.leverage.roundTripFeeRoePct.toFixed(2)}% ROE
+                    at Phoenix taker fees, or {snapshot.leverage.makerRoundTripFeeRoePct.toFixed(2)}% ROE if both
+                    legs rest as maker. A take-profit must clear that before it earns anything, and a stop must
+                    sit well inside the {snapshot.leverage.liquidationRoePct.toFixed(0)}% ROE liquidation line.
+                  </AlertDescription>
+                </Alert>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-white/10">
+                        <TableHead>BTC move</TableHead>
+                        <TableHead className="text-right">BTC price</TableHead>
+                        <TableHead className="text-right">P&amp;L</TableHead>
+                        <TableHead className="text-right">ROE</TableHead>
+                        <TableHead className="text-right">Net P&amp;L (after fees)</TableHead>
+                        <TableHead className="text-right">Net ROE</TableHead>
+                        <TableHead>State</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {snapshot.leverage.rows.map((row) => (
+                        <TableRow key={row.pricePct} className="border-white/10">
+                          <TableCell className="font-mono text-xs">
+                            {row.pricePct > 0 ? "+" : ""}
+                            {row.pricePct}%
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-xs">
+                            {usd(row.price, 0)}
+                          </TableCell>
+                          <TableCell className={cn("text-right font-mono text-xs", pnlClass(row.pnlUsd))}>
+                            {usd(row.pnlUsd)}
+                          </TableCell>
+                          <TableCell className={cn("text-right font-mono text-xs", pnlClass(row.roePct))}>
+                            {row.roePct > 0 ? "+" : ""}
+                            {row.roePct.toFixed(1)}%
+                          </TableCell>
+                          <TableCell className={cn("text-right font-mono text-xs", pnlClass(row.netPnlUsd))}>
+                            {usd(row.netPnlUsd)}
+                          </TableCell>
+                          <TableCell className={cn("text-right font-mono text-xs", pnlClass(row.netRoePct))}>
+                            {row.netRoePct > 0 ? "+" : ""}
+                            {row.netRoePct.toFixed(1)}%
+                          </TableCell>
+                          <TableCell>
+                            {row.liquidated ? (
+                              <StatusPill tone="bad">Liquidated</StatusPill>
+                            ) : (
+                              <StatusPill tone="neutral">Open</StatusPill>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                <p className="text-xs text-zinc-500">
+                  Shorts mirror this table with the sign flipped, but this repository does not open
+                  short inventory. Enabling a short/neutral regime is a separate, gated change.
+                </p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="backtest">
+            <Card className="border-white/10 bg-[#14181f]">
+              <CardHeader>
+                <CardTitle>Backtest — frozen long-only engine over closed candles</CardTitle>
+                <CardDescription>
+                  Walks the already-closed public candle window through the same engine the console
+                  runs and reports net outcomes, including how much of the gross the fees consume.
+                  This measures the current strategy; it does not tune any parameter.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <Button onClick={() => void runBacktest()} disabled={backtesting}>
+                  {backtesting ? "Walking candles\u2026" : "Run backtest"}
+                </Button>
+                {backtestError ? (
+                  <Alert variant="destructive">
+                    <AlertTitle>Backtest failed</AlertTitle>
+                    <AlertDescription>{backtestError}</AlertDescription>
+                  </Alert>
+                ) : null}
+                {backtest ? (
+                  <>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <Row k="Candles" v={backtest.candleCount.toLocaleString("en-US")} />
+                      <Row k="Window" v={hours(backtest.durationHours)} />
+                      <Row k="Feed" v={backtest.marketSource.replaceAll("_", " ")} />
+                      <Row k="LONG transitions" v={String(backtest.independentLongTransitions)} />
+                    </div>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="border-white/10">
+                            <TableHead>Mandate</TableHead>
+                            <TableHead className="text-right">Net P&amp;L</TableHead>
+                            <TableHead className="text-right">ROE</TableHead>
+                            <TableHead className="text-right">Harvest</TableHead>
+                            <TableHead className="text-right">Inv. MTM</TableHead>
+                            <TableHead className="text-right">Fees</TableHead>
+                            <TableHead className="text-right">Fees / gross</TableHead>
+                            <TableHead>Invariants</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {backtest.mandates.map((mandate) => (
+                            <TableRow key={mandate.mandate} className="border-white/10">
+                              <TableCell className="capitalize">{mandate.mandate}</TableCell>
+                              <TableCell className={cn("text-right font-mono text-xs", pnlClass(mandate.worstPathPnlUsd))}>
+                                {usd(mandate.worstPathPnlUsd)}
+                              </TableCell>
+                              <TableCell className={cn("text-right font-mono text-xs", pnlClass(mandate.roePct))}>
+                                {mandate.roePct > 0 ? "+" : ""}
+                                {mandate.roePct.toFixed(2)}%
+                              </TableCell>
+                              <TableCell className={cn("text-right font-mono text-xs", pnlClass(mandate.gridHarvestGrossUsd))}>
+                                {usd(mandate.gridHarvestGrossUsd)}
+                              </TableCell>
+                              <TableCell className={cn("text-right font-mono text-xs", pnlClass(mandate.inventoryMtmPnlUsd))}>
+                                {usd(mandate.inventoryMtmPnlUsd)}
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-xs text-rose-300">
+                                {usd(mandate.feesUsd)}
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-xs text-rose-300">
+                                {mandate.feeShareOfGrossPct === null
+                                  ? "\u2014"
+                                  : `${mandate.feeShareOfGrossPct.toFixed(0)}%`}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                {mandate.everShort || mandate.everLiquidated || mandate.exposureCapBreached ? (
+                                  <StatusPill tone="bad">breach</StatusPill>
+                                ) : (
+                                  <StatusPill tone="good">clean</StatusPill>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    <p className="text-xs text-zinc-500">{backtest.note}</p>
+                  </>
+                ) : (
+                  <p className="text-sm text-zinc-400">
+                    No backtest yet. Run it to see net P&amp;L, ROE, and the fee share of gross over the
+                    closed-candle window.
+                  </p>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
