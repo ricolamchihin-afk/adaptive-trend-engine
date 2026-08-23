@@ -1,15 +1,8 @@
 import { createHash } from "node:crypto";
-import type {
-  HierarchyThresholds,
-  MandateId,
-  MandateSpec,
-  ProductionBoundary,
-  VenueSpec,
-} from "./types";
+import type { ProductionBoundary, VenueSpec } from "./types";
 
-export const EPOCH_ID = "phase_7_9_conservative_readiness";
-export const EPOCH_TITLE = "Phase 7.9 Conservative LONG production boundary";
-export const SELECTED_CANDIDATE = "conservative" as const satisfies MandateId;
+export const EPOCH_ID = "phase_7_10_dynamic_directional";
+export const EPOCH_TITLE = "Phase 7.10 dynamic directional exposure";
 
 export const LIVE_ACTIONS_ENABLED = false as const;
 
@@ -21,61 +14,33 @@ export const PRODUCTION_BOUNDARY = {
   kill_switch: "paper_flatten_only",
 } as const satisfies ProductionBoundary;
 
-export const SHARED_CONTROLS = {
-  marginAllocation: 0.2,
-  gridLevels: 80,
-  rangePct: 0.05,
-  replenishment: "aggressive_persistent",
-  reanchorThresholdPct: 0.04,
-  reanchorOnlyWhenFlat: true,
-  // ponytail: funding stays $0 until a venue-native rate is stressed into P&L (promotion gate 9).
-  fundingPlaceholderUsd: 0,
-  closedCandleOnly: true,
-  openingShortsProhibited: true,
-  lotSizeBtc: 0.00001,
-  minNotionalUsd: 10,
-  researchCapitalPerVenueUsd: 800,
-  researchPortfolioUsd: 4000,
-  venueCount: 5,
-} as const;
-
-export const HIERARCHY_THRESHOLDS = {
+// Single venue, single book. Phoenix, 1000 USDC, 10x. Dynamic long / short / grid.
+export const STRATEGY = {
+  venue: "phoenix" as const,
+  capitalUsd: 1000,
+  leverage: 10,
+  // Regime classification is trend-based on the daily + 4h context only, so the
+  // same rule works over a one-year backtest without depending on short-lookback
+  // 1h/15m feeds the public API cannot serve for a whole year.
   dailyEmaPeriod: 20,
   fourHourEmaPeriod: 20,
   fourHourAdxPeriod: 14,
   adxTrendThreshold: 20,
-  adxHaltThreshold: 15,
-  zScorePeriod: 20,
   rsiPeriod: 14,
-  bbwPeriod: 20,
-  bbwStd: 2,
   rsiTailHigh: 85,
   rsiTailLow: 15,
-  paceFullZ: 0,
-  paceFullRsi: 50,
-  paceHalfZ: 1,
-  paceHalfRsi: 65,
-  bbwLookback: 50,
-  bbwExtremeQuantile: 0.9,
-} as const satisfies HierarchyThresholds;
+  // Lean neutral grid (NOT the retired 80-level persistent grid).
+  gridLevels: 8,
+  gridRangePct: 0.04,
+  // Risk controls for 10x. Protective stop sits well inside the ~9% liquidation
+  // distance so an ordinary adverse swing caps the loss instead of blowing up.
+  protectiveStopPct: 0.04,
+  liquidationPct: 0.09,
+  lotSizeBtc: 0.00001,
+  minNotionalUsd: 10,
+} as const;
 
 export const VENUES: readonly VenueSpec[] = [
-  {
-    id: "decibel",
-    label: "Decibel",
-    makerFeeBps: 1.5,
-    takerFeeBps: 4.5,
-    feeScheduleNote:
-      "Research placeholder fee schedule. Not a venue-native verified tier.",
-  },
-  {
-    id: "n1",
-    label: "N1",
-    makerFeeBps: 2.0,
-    takerFeeBps: 5.0,
-    feeScheduleNote:
-      "Research placeholder fee schedule. Not a venue-native verified tier.",
-  },
   {
     id: "phoenix",
     label: "Phoenix",
@@ -84,87 +49,29 @@ export const VENUES: readonly VenueSpec[] = [
     feeScheduleNote:
       "Research placeholder fee schedule. Not a venue-native verified tier.",
   },
-  {
-    id: "popdex",
-    label: "Popdex",
-    makerFeeBps: 2.5,
-    takerFeeBps: 5.5,
-    feeScheduleNote:
-      "Research placeholder fee schedule. Not a venue-native verified tier.",
-  },
-  {
-    id: "risex",
-    label: "RiseX",
-    makerFeeBps: 1.8,
-    takerFeeBps: 4.8,
-    feeScheduleNote:
-      "Research placeholder fee schedule. Not a venue-native verified tier.",
-  },
 ] as const;
 
-export const MANDATES: Record<MandateId, MandateSpec> = {
-  conservative: {
-    id: "conservative",
-    name: "Conservative",
-    role: "selected_production_candidate",
-    floorPct: 0.25,
-    leverage: 10,
-    liquidationBufferFloor: 0.4,
-    startingNavUsd: 4000,
-    venueCapitalUsd: 800,
-  },
-  moderate: {
-    id: "moderate",
-    name: "Moderate",
-    role: "research_benchmark",
-    floorPct: 0.5,
-    leverage: 15,
-    liquidationBufferFloor: 0.25,
-    startingNavUsd: 4000,
-    venueCapitalUsd: 800,
-  },
-  aggressive: {
-    id: "aggressive",
-    name: "Aggressive",
-    role: "research_benchmark",
-    floorPct: 0.75,
-    leverage: 20,
-    liquidationBufferFloor: 0.15,
-    startingNavUsd: 4000,
-    venueCapitalUsd: 800,
-  },
-};
+export function venueFeeRate(role: "maker" | "taker"): number {
+  const phoenix = VENUES[0];
+  return (role === "maker" ? phoenix.makerFeeBps : phoenix.takerFeeBps) / 10_000;
+}
 
 export const FROZEN_SPEC = {
   epoch: EPOCH_ID,
-  candidate: SELECTED_CANDIDATE,
-  direction: "long_only_while_eligible_daily_4h_hierarchy_is_LONG",
   live_actions_enabled: LIVE_ACTIONS_ENABLED,
-  shared: SHARED_CONTROLS,
-  hierarchy: HIERARCHY_THRESHOLDS,
-  venues: VENUES,
-  mandates: MANDATES,
-  selected_live_shape: {
-    isolated_accounts: 5,
-    capital_per_account_usd: "600-800",
-    aggregate_capital_usd: "3000-4000",
-    research_reference_usd: 4000,
-    leverage_on_deployed_margin: 10,
-    margin_allocation: 0.2,
-    max_notional_per_venue_usd: "1200-1600",
-    max_notional_aggregate_usd: "6000-8000",
-    score_100_floor_pct: 0.25,
-    immediate_pace: [0.25, 0.5, 1],
-    remaining_deployment: "persistent_pullback_grid",
-    opening_shorts: "prohibited",
-    exits: "reduce_only_grid_or_hard_invalidation",
-    evidence_timing: "strict_closed_candle",
+  strategy: "dynamic_directional_exposure",
+  regimes: ["LONG", "SHORT", "GRID", "FLAT"],
+  venue: STRATEGY.venue,
+  capital_usd: STRATEGY.capitalUsd,
+  leverage: STRATEGY.leverage,
+  directional_notional_usd: STRATEGY.capitalUsd * STRATEGY.leverage,
+  grid: { levels: STRATEGY.gridLevels, range_pct: STRATEGY.gridRangePct },
+  risk: {
+    protective_stop_pct: STRATEGY.protectiveStopPct,
+    liquidation_pct: STRATEGY.liquidationPct,
   },
-  promotion_requirement: {
-    independent_long_transitions: 20,
-    venue_native_funding: "placeholder_zero",
-    live_clearance: "not_authorized",
-  },
+  retired: "phase_7_9_persistent_80_level_grid",
+  exits: "regime_flip_or_protective_stop_or_liquidation",
 } as const;
 
 export function stableStringify(value: unknown): string {
@@ -187,15 +94,9 @@ export function hashFrozenSpec(): string {
 
 export const SPEC_HASH = hashFrozenSpec();
 
-export function mandateSpec(id: MandateId): MandateSpec {
-  return MANDATES[id];
-}
-
-export function maxNotionalUsd(id: MandateId): number {
-  const mandate = MANDATES[id];
-  return (
-    mandate.venueCapitalUsd * SHARED_CONTROLS.marginAllocation * mandate.leverage
-  );
+// Directional notional at a given equity, holding leverage constant.
+export function directionalNotionalUsd(equityUsd: number): number {
+  return equityUsd * STRATEGY.leverage;
 }
 
 export function assertLiveActionsDisabled(): void {

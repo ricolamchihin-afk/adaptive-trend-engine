@@ -4,15 +4,15 @@ import {
   LIVE_ACTIONS_ENABLED,
   PRODUCTION_BOUNDARY,
   SPEC_HASH,
+  STRATEGY,
   assertLiveActionsDisabled,
+  directionalNotionalUsd,
   hashFrozenSpec,
-  maxNotionalUsd,
+  venueFeeRate,
 } from "./spec";
 import { rejectSecretFields } from "./production";
-import { paceFromFifteen, extensionScoreFromParts } from "./hierarchy";
-import { planAllocation, targetNotionalUsd } from "./sizing";
 
-describe("frozen Conservative specification", () => {
+describe("dynamic directional specification", () => {
   it("keeps live writes disabled", () => {
     expect(LIVE_ACTIONS_ENABLED).toBe(false);
     expect(PRODUCTION_BOUNDARY.live_actions_enabled).toBe(false);
@@ -20,46 +20,31 @@ describe("frozen Conservative specification", () => {
     expect(() => assertLiveActionsDisabled()).not.toThrow();
   });
 
-  it("hashes the frozen candidate deterministically", () => {
+  it("hashes the strategy spec deterministically", () => {
     expect(SPEC_HASH).toMatch(/^[a-f0-9]{64}$/);
     expect(hashFrozenSpec()).toBe(SPEC_HASH);
-    expect(FROZEN_SPEC.candidate).toBe("conservative");
+    expect(FROZEN_SPEC.strategy).toBe("dynamic_directional_exposure");
+    expect(FROZEN_SPEC.regimes).toContain("SHORT");
+    expect(FROZEN_SPEC.retired).toContain("80");
   });
 
-  it("sizes Conservative from the 25% floor to 100% as extension falls", () => {
-    expect(maxNotionalUsd("conservative")).toBe(1600);
-    expect(targetNotionalUsd("conservative", 100)).toBe(400);
-    expect(targetNotionalUsd("conservative", 0)).toBe(1600);
-    expect(targetNotionalUsd("conservative", 50)).toBe(1000);
-    const staged = planAllocation("conservative", 100, 0.25, 100_000);
-    expect(staged.immediateNotional).toBe(100);
-    expect(staged.gridRemainderNotional).toBe(300);
+  it("uses Phoenix, 1000 USDC at 10x", () => {
+    expect(STRATEGY.venue).toBe("phoenix");
+    expect(STRATEGY.capitalUsd).toBe(1000);
+    expect(STRATEGY.leverage).toBe(10);
+    expect(directionalNotionalUsd(1000)).toBe(10_000);
+    expect(directionalNotionalUsd(1500)).toBe(15_000);
   });
 
-  it("does not treat Moderate or Aggressive as live candidates", () => {
-    expect(FROZEN_SPEC.mandates.moderate.role).toBe("research_benchmark");
-    expect(FROZEN_SPEC.mandates.aggressive.role).toBe("research_benchmark");
-    expect(FROZEN_SPEC.mandates.conservative.role).toBe("selected_production_candidate");
-  });
-});
-
-describe("hierarchy mapping", () => {
-  it("maps 15m evidence to pace only", () => {
-    expect(paceFromFifteen(-0.2, 40)).toBe(1);
-    expect(paceFromFifteen(0.4, 60)).toBe(0.5);
-    expect(paceFromFifteen(1.4, 70)).toBe(0.25);
-  });
-
-  it("raises extension when the trend is stretched", () => {
-    const tight = extensionScoreFromParts(-1.5, 45, 48);
-    const stretched = extensionScoreFromParts(2.2, 78, 72);
-    expect(stretched).toBeGreaterThan(tight);
+  it("exposes the Phoenix fee schedule", () => {
+    expect(venueFeeRate("taker")).toBeCloseTo(0.0004, 8);
+    expect(venueFeeRate("maker")).toBeCloseTo(0.00012, 8);
   });
 });
 
 describe("production boundary", () => {
   it("rejects credential-like fields", () => {
     expect(rejectSecretFields({ apiKey: "x" })).toContain("apiKey");
-    expect(rejectSecretFields({ accountLabel: "decibel-1" })).toBeNull();
+    expect(rejectSecretFields({ accountLabel: "phoenix-1" })).toBeNull();
   });
 });

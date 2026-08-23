@@ -8,8 +8,7 @@ import {
   makeCandle,
   parseHyperliquidCandles,
 } from "./candles";
-import type { Candle, MarketSource } from "./types";
-import type { MarketSeries } from "./hierarchy";
+import type { Candle, MarketSeries, MarketSource } from "./types";
 
 const INFO_URL = "https://api.hyperliquid.xyz/info";
 
@@ -174,14 +173,17 @@ export function syntheticSeries(now: number): MarketSeries {
   };
 }
 
-export async function loadMarket(now = Date.now()): Promise<MarketSnapshot> {
+export async function loadMarket(
+  now = Date.now(),
+  oneMinuteLookbackMs = 40 * HOUR_MS,
+): Promise<MarketSnapshot> {
   try {
     const [daily, fourHour, oneHour, fifteen, oneMinute, assetCtx] = await Promise.all([
       fetchCandles("1d", DAY_MS, 130 * DAY_MS, now),
       fetchCandles("4h", FOUR_HOUR_MS, 70 * DAY_MS, now),
       fetchCandles("1h", HOUR_MS, 25 * DAY_MS, now),
       fetchCandles("15m", FIFTEEN_MS, 12 * DAY_MS, now),
-      fetchCandles("1m", MINUTE_MS, 40 * HOUR_MS, now),
+      fetchCandles("1m", MINUTE_MS, oneMinuteLookbackMs, now),
       postInfo({ type: "metaAndAssetCtxs" }).catch(() => null),
     ]);
     const series: MarketSeries = {
@@ -213,6 +215,47 @@ export async function loadMarket(now = Date.now()): Promise<MarketSnapshot> {
       lastClosed1m,
       mark: lastClosed1m?.close ?? null,
       warning: `Public Hyperliquid feed failed (${error instanceof Error ? error.message : "unknown"}). Offline synthetic candles are labeled and excluded from promotion evidence.`,
+    };
+  }
+}
+
+// One-year market for the backtest: daily context (with EMA warmup) plus a full
+// year of 4h execution candles. The regime classifier only needs daily + 4h, so
+// no long 1m/15m history the public feed cannot serve is required.
+export async function loadYearMarket(now = Date.now()): Promise<MarketSnapshot> {
+  try {
+    const [daily, fourHour, assetCtx] = await Promise.all([
+      fetchCandles("1d", DAY_MS, 420 * DAY_MS, now),
+      fetchCandles("4h", FOUR_HOUR_MS, 365 * DAY_MS, now),
+      postInfo({ type: "metaAndAssetCtxs" }).catch(() => null),
+    ]);
+    const series: MarketSeries = {
+      daily,
+      fourHour,
+      oneHour: [],
+      fifteen: [],
+      oneMinute: [],
+      nativeFundingRate: btcFundingRate(assetCtx),
+    };
+    const lastClosed = fourHour[fourHour.length - 1] ?? null;
+    return {
+      series,
+      source: "hyperliquid_public",
+      fetchedAt: now,
+      lastClosed1m: lastClosed,
+      mark: lastClosed?.close ?? null,
+      warning: null,
+    };
+  } catch (error) {
+    const series = syntheticSeries(now);
+    const lastClosed = series.fourHour[series.fourHour.length - 1] ?? null;
+    return {
+      series,
+      source: "offline_synthetic_fallback",
+      fetchedAt: now,
+      lastClosed1m: lastClosed,
+      mark: lastClosed?.close ?? null,
+      warning: `Public Hyperliquid feed failed (${error instanceof Error ? error.message : "unknown"}). Offline synthetic candles are labeled and not evidence.`,
     };
   }
 }

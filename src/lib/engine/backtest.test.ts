@@ -1,29 +1,29 @@
 import { describe, expect, it } from "vitest";
 import { runBacktest } from "./backtest";
 import { syntheticSeries } from "./market-data";
+import type { Regime } from "./types";
 
-describe("backtest harness", () => {
+describe("dynamic strategy backtest", () => {
   const series = syntheticSeries(Date.UTC(2026, 7, 23, 12, 0, 0));
   const report = runBacktest(series, "offline_synthetic_fallback");
+  const regimes: Regime[] = ["LONG", "SHORT", "GRID", "FLAT"];
 
-  it("walks the full one-minute series", () => {
-    expect(report.candleCount).toBe(series.oneMinute.length);
-    expect(report.candleCount).toBeGreaterThan(0);
-    expect(report.mandates).toHaveLength(3);
+  it("executes on the 4h timeframe over every bar", () => {
+    expect(report.executionTimeframe).toBe("4h");
+    expect(report.bars).toBe(series.fourHour.length);
+    const barsSum = regimes.reduce((sum, r) => sum + report.barsInRegime[r], 0);
+    expect(barsSum).toBe(report.bars);
   });
 
-  it("never opens a short and never breaches the exposure cap", () => {
-    for (const mandate of report.mandates) {
-      expect(mandate.everShort).toBe(false);
-      expect(mandate.exposureCapBreached).toBe(false);
-      expect(mandate.feesUsd).toBeGreaterThanOrEqual(0);
-    }
+  it("reconciles per-regime P&L to the equity change", () => {
+    const pnlSum = regimes.reduce((sum, r) => sum + report.perRegimePnlUsd[r], 0);
+    expect(pnlSum).toBeCloseTo(report.finalEquityUsd - report.startEquityUsd, 3);
+    expect(Number.isFinite(report.finalEquityUsd)).toBe(true);
+    expect(report.blownUp).toBe(false);
   });
 
-  it("reports ROE consistent with worst-path P&L", () => {
-    for (const mandate of report.mandates) {
-      const expectedRoe = (mandate.worstPathPnlUsd / mandate.startingNavUsd) * 100;
-      expect(mandate.roePct).toBeCloseTo(expectedRoe, 6);
-    }
+  it("uses the 1000 USDC / 10x sizing", () => {
+    expect(report.capitalUsd).toBe(1000);
+    expect(report.leverage).toBe(10);
   });
 });
