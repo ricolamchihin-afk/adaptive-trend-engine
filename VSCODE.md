@@ -22,7 +22,18 @@ copilot-debug <your command here>
 The '<' operator is reserved for future use.
 ```
 
-If you already cloned into `C:\Users\user\Cursor`, do not clone again.
+If you already cloned into `C:\\Users\\user\\Cursor`, do not clone again.
+
+There may also be an empty folder at
+`C:\\Users\\user\\PycharmProjects\\Cursor`. That is a different box. npm must
+run in the folder that contains `package.json`. Check first:
+
+```powershell
+dir C:\\Users\\user\\Cursor\\package.json
+```
+
+If that file is listed, use `C:\\Users\\user\\Cursor`. If npm says ENOENT
+and the path is `PycharmProjects\\Cursor`, you are in the wrong folder.
 
 ## What a repo is, in kid words
 
@@ -54,7 +65,7 @@ Node.js / TypeScript.
 In PowerShell, type this line, then press Enter:
 
 ```powershell
-cd C:\Users\user
+cd C:\\Users\\user
 ```
 
 Then this line, then press Enter:
@@ -79,7 +90,7 @@ You do not need that command.
 3. If Windows cannot find it, install it from https://code.visualstudio.com/
    then come back to this step.
 4. In VS Code: File: Open Folder.
-5. Go to `C:\Users\user\Cursor`.
+5. Go to `C:\\Users\\user\\Cursor`.
 6. Click Select Folder.
 
 This replaces PyCharm's Open Project. One folder is one workspace.
@@ -106,11 +117,20 @@ Do not install a live-trading plugin. This repo has no write adapter.
 
 In VS Code: Terminal: New Terminal.
 
-Then run these one at a time:
+Then run these one at a time. The first line is required. npm looks for
+`package.json` in the folder you are standing in.
 
 ```powershell
-cd C:\Users\user\Cursor
+cd C:\\Users\\user\\Cursor
 ```
+
+```powershell
+dir package.json
+```
+
+You must see `package.json` listed. If you do not, stop and check the
+path. Do not run npm from `C:\\Users\\user\\PycharmProjects\\Cursor` unless
+that folder also shows `package.json`.
 
 On many Windows machines PowerShell blocks `npm.ps1`. If you see
 `running scripts is disabled`, use `npm.cmd` instead of `npm`:
