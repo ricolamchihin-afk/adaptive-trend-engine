@@ -96,6 +96,21 @@ async function resolveSigner(
   return { keypair, pubkey };
 }
 
+function kitIxToWeb3(
+  ix: { programAddress: string; accounts: Array<{ address: string; role: number }>; data: Uint8Array },
+  web3: typeof import("@solana/web3.js"),
+): import("@solana/web3.js").TransactionInstruction {
+  return new web3.TransactionInstruction({
+    programId: new web3.PublicKey(ix.programAddress),
+    keys: ix.accounts.map((a) => ({
+      pubkey: new web3.PublicKey(a.address),
+      isSigner: a.role === 2 || a.role === 3,
+      isWritable: a.role === 1 || a.role === 3,
+    })),
+    data: Buffer.from(ix.data),
+  });
+}
+
 export class PhoenixPerpExecutor implements Executor {
   readonly name = "phoenix-perp";
 
@@ -187,7 +202,15 @@ export class PhoenixPerpExecutor implements Executor {
         return { submitted: false, live: false, message: "PHOENIX_PRIVATE_KEY/KEYPAIR_PATH did not resolve to a signing key." };
       }
       const connection = new web3.Connection(e.rpcUrl, "confirmed");
-      const tx = new web3.Transaction().add(ix as import("@solana/web3.js").TransactionInstruction);
+      const raw = ix as { programAddress?: string; accounts?: unknown; data?: Uint8Array };
+      const instruction =
+        raw.programAddress && Array.isArray(raw.accounts) && raw.data
+          ? kitIxToWeb3(
+              raw as { programAddress: string; accounts: Array<{ address: string; role: number }>; data: Uint8Array },
+              web3,
+            )
+          : (ix as import("@solana/web3.js").TransactionInstruction);
+      const tx = new web3.Transaction().add(instruction);
       const sig = await web3.sendAndConfirmTransaction(connection, tx, [keypair]);
       return { submitted: true, live: true, message: `Submitted Phoenix ${intent.side} order. tx ${sig}` };
     } catch (error) {
