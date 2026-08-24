@@ -19,6 +19,9 @@ export interface SimConfig {
   tpAdxFactor: number;
   tpMinRoePct: number;
   tpMaxRoePct: number;
+  // Optional confirmation filters (0/off by default).
+  macdFilter: number; // 1 = require MACD histogram to agree with the trade side
+  emaSlopeMinPct: number; // require |daily EMA slope| >= this (0 = off)
 }
 
 // 4h bars per year, for annualizing the Sharpe ratio.
@@ -48,6 +51,8 @@ export function defaultSimConfig(): SimConfig {
     tpAdxFactor: STRATEGY.tpAdxFactor,
     tpMinRoePct: STRATEGY.tpMinRoePct,
     tpMaxRoePct: STRATEGY.tpMaxRoePct,
+    macdFilter: STRATEGY.macdFilter,
+    emaSlopeMinPct: STRATEGY.emaSlopeMinPct,
   };
 }
 
@@ -218,11 +223,17 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
     const trendStrong = f.adx !== null && f.adx >= cfg.adxThreshold;
     const rsiOkLong = cfg.rsiLongMin <= 0 || (f.rsi !== null && f.rsi >= cfg.rsiLongMin);
     const rsiOkShort = cfg.rsiShortMax >= 100 || (f.rsi !== null && f.rsi <= cfg.rsiShortMax);
+    const macdOkLong = cfg.macdFilter < 1 || (f.macdHist !== null && f.macdHist > 0);
+    const macdOkShort = cfg.macdFilter < 1 || (f.macdHist !== null && f.macdHist < 0);
+    const slopeOkLong =
+      cfg.emaSlopeMinPct <= 0 || (f.dailyEmaSlopePct !== null && f.dailyEmaSlopePct >= cfg.emaSlopeMinPct);
+    const slopeOkShort =
+      cfg.emaSlopeMinPct <= 0 || (f.dailyEmaSlopePct !== null && f.dailyEmaSlopePct <= -cfg.emaSlopeMinPct);
     if (posBtc === 0 && !justExited && trendStrong && f.atr !== null && f.atr > 0) {
-      if (f.dailyDir > 0 && rsiOkLong && f.entryHigh !== null && candle.high >= f.entryHigh) {
+      if (f.dailyDir > 0 && rsiOkLong && macdOkLong && slopeOkLong && f.entryHigh !== null && candle.high >= f.entryHigh) {
         open(1, Math.max(candle.open, f.entryHigh), f.atr, "LONG");
         entryAdx = f.adx ?? 0;
-      } else if (f.dailyDir < 0 && rsiOkShort && f.entryLow !== null && candle.low <= f.entryLow) {
+      } else if (f.dailyDir < 0 && rsiOkShort && macdOkShort && slopeOkShort && f.entryLow !== null && candle.low <= f.entryLow) {
         open(-1, Math.min(candle.open, f.entryLow), f.atr, "SHORT");
         entryAdx = f.adx ?? 0;
       }

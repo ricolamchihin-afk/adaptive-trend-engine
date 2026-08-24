@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import type { ProductionBoundary, VenueSpec } from "./types";
 
-export const EPOCH_ID = "phase_7_10_dynamic_directional";
-export const EPOCH_TITLE = "Phase 7.10 dynamic directional exposure";
+export const EPOCH_ID = "adaptive_trend_engine_v1";
+export const EPOCH_TITLE = "Adaptive Trend Engine";
 
 export const LIVE_ACTIONS_ENABLED = false as const;
 
@@ -55,6 +55,9 @@ export const STRATEGY = {
   tpAdxFactor: 1.0,
   tpMinRoePct: 10,
   tpMaxRoePct: 60,
+  // Optional confirmation filters (off by default; tune/enable in the lab).
+  macdFilter: 0,
+  emaSlopeMinPct: 0,
   // ATR sizing + initial stop. A wide 3x ATR stop cuts whipsaw exits and lowers drawdown.
   atrPeriod: 14,
   atrStopMult: 3,

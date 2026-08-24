@@ -43,6 +43,8 @@ interface LabParams {
   tpAdxFactor: number;
   tpMinRoePct: number;
   tpMaxRoePct: number;
+  macdFilter: number;
+  emaSlopeMinPct: number;
 }
 
 const DEFAULT_LAB: LabParams = {
@@ -64,6 +66,8 @@ const DEFAULT_LAB: LabParams = {
   tpAdxFactor: 1.0,
   tpMinRoePct: 10,
   tpMaxRoePct: 60,
+  macdFilter: 0,
+  emaSlopeMinPct: 0,
 };
 
 interface ConnectionsResponse {
@@ -123,6 +127,8 @@ const LAB_FIELDS: Array<{ key: keyof LabParams; label: string; step?: number; hi
   { key: "tpAdxFactor", label: "TP × ADX factor", step: 0.1, hint: "dynamic TP% = factor × ADX; 0 = off" },
   { key: "tpMinRoePct", label: "TP min ROE %", step: 5, hint: "dynamic TP floor" },
   { key: "tpMaxRoePct", label: "TP max ROE %", step: 5, hint: "dynamic TP ceiling" },
+  { key: "macdFilter", label: "MACD filter (0/1)", hint: "1 = require MACD momentum agree" },
+  { key: "emaSlopeMinPct", label: "EMA slope min %", step: 0.5, hint: "0 = off; require rising/falling trend" },
 ];
 
 function pnlClass(value: number): string {
@@ -307,6 +313,8 @@ export function ReadinessConsole() {
         tpAdx: String(p.tpAdxFactor),
         tpMin: String(p.tpMinRoePct),
         tpMax: String(p.tpMaxRoePct),
+        macd: String(p.macdFilter),
+        emaSlope: String(p.emaSlopeMinPct),
       });
       const response = await fetch(`/api/backtest?${q}`, { cache: "no-store" });
       const data = (await response.json()) as BacktestReport & { error?: string };
@@ -323,7 +331,7 @@ export function ReadinessConsole() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0b0d10] px-6">
         <div className="max-w-md text-center">
-          <p className="text-xs uppercase tracking-[0.28em] text-amber-200/80">Phase 7.10</p>
+          <p className="text-xs uppercase tracking-[0.28em] text-amber-200/80">Adaptive Trend Engine</p>
           <h1 className="mt-3 text-2xl font-semibold text-zinc-100">Loading trend strategy</h1>
           <p className="mt-3 text-sm leading-6 text-zinc-400">
             Fetching closed Hyperliquid candles and running the Donchian trend engine.
@@ -355,10 +363,10 @@ export function ReadinessConsole() {
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 sm:px-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-[11px] uppercase tracking-[0.32em] text-amber-200/80">
-              Smart Grid · Phase 7.10
+              Adaptive Trend Engine
             </p>
             <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-              Turtle trend follower
+              Adaptive trend follower · BTC 4h
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
               One Phoenix book, {usd(strategy.capitalUsd, 0)}. Donchian breakout entries filtered by the

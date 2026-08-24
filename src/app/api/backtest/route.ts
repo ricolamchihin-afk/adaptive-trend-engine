@@ -27,6 +27,8 @@ export async function GET(request: Request) {
       tpAdxFactor: num(params, "tpAdx"),
       tpMinRoePct: num(params, "tpMin"),
       tpMaxRoePct: num(params, "tpMax"),
+      macdFilter: num(params, "macd"),
+      emaSlopeMinPct: num(params, "emaSlope"),
     };
     const feat = {
       donchianEntry: num(params, "entry"),

@@ -112,6 +112,31 @@ export function atr(
   return value;
 }
 
+// MACD histogram (macd line minus signal line) at the last bar. Positive = bullish
+// momentum. Pass a bounded recent window of closes for speed.
+export function macdHistogram(
+  closes: number[],
+  fast = 12,
+  slow = 26,
+  signalPeriod = 9,
+): number | null {
+  if (closes.length < slow + signalPeriod) {
+    return null;
+  }
+  const fastArr = emaSeries(closes, fast);
+  const slowArr = emaSeries(closes, slow);
+  const offset = fastArr.length - slowArr.length;
+  if (offset < 0) {
+    return null;
+  }
+  const macdLine = slowArr.map((slowVal, i) => fastArr[i + offset] - slowVal);
+  const signalArr = emaSeries(macdLine, signalPeriod);
+  if (!signalArr.length) {
+    return null;
+  }
+  return macdLine[macdLine.length - 1] - signalArr[signalArr.length - 1];
+}
+
 export function highestHigh(values: number[]): number | null {
   return values.length ? Math.max(...values) : null;
 }

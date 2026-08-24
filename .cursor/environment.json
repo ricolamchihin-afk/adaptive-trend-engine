@@ -1,11 +1,11 @@
 {
-  "name": "Smart Grid Conservative Readiness",
+  "name": "Adaptive Trend Engine",
   "install": "npm install",
   "terminals": [
     {
       "name": "Next dev server",
       "command": "npm run dev",
-      "description": "Phase 7.9 readiness console on http://127.0.0.1:43871 (paper only, live writes disabled)."
+      "description": "Adaptive Trend Engine console on http://127.0.0.1:43871 (paper/dry-run only, live writes disabled)."
     }
   ],
   "ports": [

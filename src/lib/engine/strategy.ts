@@ -3,9 +3,10 @@ import {
   adxWilder,
   atr,
   closesOf,
+  emaSeries,
   highestHigh,
-  lastEma,
   lowestLow,
+  macdHistogram,
   rsiWilder,
 } from "./indicators";
 import { STRATEGY } from "./spec";
@@ -24,8 +25,12 @@ export interface Feature {
   adx: number | null;
   // 4h RSI (momentum) over the prior bars.
   rsi: number | null;
+  // 4h MACD histogram (momentum confirmation). Positive = bullish.
+  macdHist: number | null;
   // Daily trend filter: +1 above the daily EMA, -1 below, 0 unavailable.
   dailyDir: 1 | -1 | 0;
+  // Daily EMA slope over the prior ~10 daily bars, in percent (regime strength).
+  dailyEmaSlopePct: number | null;
 }
 
 export interface FeatureParams {
@@ -37,15 +42,25 @@ export interface FeatureParams {
   dailyEmaPeriod: number;
 }
 
-function dailyDirAt(series: MarketSeries, time: number, emaPeriod: number): 1 | -1 | 0 {
+function dailyContextAt(
+  series: MarketSeries,
+  time: number,
+  emaPeriod: number,
+): { dir: 1 | -1 | 0; slopePct: number | null } {
   const daily = usableAt(series.daily, time);
   const closes = closesOf(daily);
-  const ema = lastEma(closes, emaPeriod);
+  const emaArr = emaSeries(closes, emaPeriod);
   const last = daily[daily.length - 1];
-  if (!last || ema === null) {
-    return 0;
+  if (!last || !emaArr.length) {
+    return { dir: 0, slopePct: null };
   }
-  return last.close > ema ? 1 : -1;
+  const ema = emaArr[emaArr.length - 1];
+  const dir: 1 | -1 | 0 = last.close > ema ? 1 : -1;
+  const k = 10;
+  const prevIdx = emaArr.length - 1 - k;
+  const slopePct =
+    prevIdx >= 0 && emaArr[prevIdx] > 0 ? ((ema - emaArr[prevIdx]) / emaArr[prevIdx]) * 100 : null;
+  return { dir, slopePct };
 }
 
 // Precomputes trend-following features on the 4h series using only closed bars
@@ -70,6 +85,8 @@ export function buildFeatures(
     const atrBars = bars.slice(Math.max(0, i - (p + 1)), i);
     const adxBars = bars.slice(Math.max(0, i - adxWindow), i);
     const rsiBars = bars.slice(Math.max(0, i - (rsiWindow + 1)), i);
+    const macdBars = bars.slice(Math.max(0, i - 60), i);
+    const daily = dailyContextAt(series, candle.openTime, dailyEmaPeriod);
     const haveEntry = i >= n;
     const haveExit = i >= m;
     return {
@@ -94,7 +111,9 @@ export function buildFeatures(
         adxPeriod,
       ),
       rsi: rsiWilder(rsiBars.map((c) => c.close), rsiPeriod),
-      dailyDir: dailyDirAt(series, candle.openTime, dailyEmaPeriod),
+      macdHist: macdHistogram(macdBars.map((c) => c.close)),
+      dailyDir: daily.dir,
+      dailyEmaSlopePct: daily.slopePct,
     };
   });
 }
