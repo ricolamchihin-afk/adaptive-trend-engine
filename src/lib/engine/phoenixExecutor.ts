@@ -210,7 +210,12 @@ export class PhoenixPerpExecutor implements Executor {
               web3,
             )
           : (ix as import("@solana/web3.js").TransactionInstruction);
-      const tx = new web3.Transaction().add(instruction);
+      // ponytail: Phoenix place-market-order blows the default 200k CU (observed ProgramFailedToComplete); 1.4M is the runtime cap.
+      const tx = new web3.Transaction().add(
+        web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+        web3.ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 10_000 }),
+        instruction,
+      );
       const sig = await web3.sendAndConfirmTransaction(connection, tx, [keypair]);
       return { submitted: true, live: true, message: `Submitted Phoenix ${intent.side} order. tx ${sig}` };
     } catch (error) {
