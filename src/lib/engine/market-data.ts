@@ -34,16 +34,22 @@ async function postInfo(body: unknown): Promise<unknown> {
   return response.json();
 }
 
+export function hyperliquidDex(coin: string): string {
+  const sep = coin.indexOf(":");
+  return sep > 0 ? coin.slice(0, sep) : "";
+}
+
 async function fetchCandles(
   interval: string,
   intervalMs: number,
   lookbackMs: number,
   now: number,
+  coin = "BTC",
 ): Promise<Candle[]> {
   const raw = await postInfo({
     type: "candleSnapshot",
     req: {
-      coin: "BTC",
+      coin,
       interval,
       startTime: now - lookbackMs,
       endTime: now,
@@ -53,7 +59,7 @@ async function fetchCandles(
   return closedOnly(parsed, now);
 }
 
-function btcFundingRate(payload: unknown): number | null {
+function fundingRate(payload: unknown, coin: string): number | null {
   if (!Array.isArray(payload) || payload.length < 2) {
     return null;
   }
@@ -62,12 +68,17 @@ function btcFundingRate(payload: unknown): number | null {
   if (!universe || !ctxs) {
     return null;
   }
-  const index = universe.findIndex((asset) => asset.name === "BTC");
+  const index = universe.findIndex((asset) => asset.name === coin);
   if (index < 0 || !ctxs[index]?.funding) {
     return null;
   }
   const rate = Number(ctxs[index].funding);
   return Number.isFinite(rate) ? rate : null;
+}
+
+function assetCtxRequest(coin: string): Record<string, unknown> {
+  const dex = hyperliquidDex(coin);
+  return dex ? { type: "metaAndAssetCtxs", dex } : { type: "metaAndAssetCtxs" };
 }
 
 export function syntheticSeries(now: number): MarketSeries {
@@ -176,15 +187,16 @@ export function syntheticSeries(now: number): MarketSeries {
 export async function loadMarket(
   now = Date.now(),
   oneMinuteLookbackMs = 40 * HOUR_MS,
+  coin = "BTC",
 ): Promise<MarketSnapshot> {
   try {
     const [daily, fourHour, oneHour, fifteen, oneMinute, assetCtx] = await Promise.all([
-      fetchCandles("1d", DAY_MS, 130 * DAY_MS, now),
-      fetchCandles("4h", FOUR_HOUR_MS, 70 * DAY_MS, now),
-      fetchCandles("1h", HOUR_MS, 25 * DAY_MS, now),
-      fetchCandles("15m", FIFTEEN_MS, 12 * DAY_MS, now),
-      fetchCandles("1m", MINUTE_MS, oneMinuteLookbackMs, now),
-      postInfo({ type: "metaAndAssetCtxs" }).catch(() => null),
+      fetchCandles("1d", DAY_MS, 130 * DAY_MS, now, coin),
+      fetchCandles("4h", FOUR_HOUR_MS, 70 * DAY_MS, now, coin),
+      fetchCandles("1h", HOUR_MS, 25 * DAY_MS, now, coin),
+      fetchCandles("15m", FIFTEEN_MS, 12 * DAY_MS, now, coin),
+      fetchCandles("1m", MINUTE_MS, oneMinuteLookbackMs, now, coin),
+      postInfo(assetCtxRequest(coin)).catch(() => null),
     ]);
     const series: MarketSeries = {
       daily,
@@ -192,7 +204,7 @@ export async function loadMarket(
       oneHour,
       fifteen,
       oneMinute,
-      nativeFundingRate: btcFundingRate(assetCtx),
+      nativeFundingRate: fundingRate(assetCtx, coin),
     };
     const lastClosed1m = oneMinute[oneMinute.length - 1] ?? null;
     return {
@@ -225,12 +237,13 @@ export async function loadMarket(
 export async function loadYearMarket(
   now = Date.now(),
   days = 365,
+  coin = "BTC",
 ): Promise<MarketSnapshot> {
   try {
     const [daily, fourHour, assetCtx] = await Promise.all([
-      fetchCandles("1d", DAY_MS, (days + 90) * DAY_MS, now),
-      fetchCandles("4h", FOUR_HOUR_MS, days * DAY_MS, now),
-      postInfo({ type: "metaAndAssetCtxs" }).catch(() => null),
+      fetchCandles("1d", DAY_MS, (days + 90) * DAY_MS, now, coin),
+      fetchCandles("4h", FOUR_HOUR_MS, days * DAY_MS, now, coin),
+      postInfo(assetCtxRequest(coin)).catch(() => null),
     ]);
     const series: MarketSeries = {
       daily,
@@ -238,7 +251,7 @@ export async function loadYearMarket(
       oneHour: [],
       fifteen: [],
       oneMinute: [],
-      nativeFundingRate: btcFundingRate(assetCtx),
+      nativeFundingRate: fundingRate(assetCtx, coin),
     };
     const lastClosed = fourHour[fourHour.length - 1] ?? null;
     return {

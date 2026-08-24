@@ -79,6 +79,8 @@ export interface SimResult {
   monthsCount: number;
   monthly: Array<{ month: string; returnPct: number; trades: number; endEquityUsd: number }>;
   equityCurve: Array<{ t: number; equity: number }>;
+  // Full 4h mark-to-market path (not downsampled). Used for portfolio overlay.
+  equityBars: Array<{ t: number; equity: number }>;
   feesUsd: number;
   perRegimePnlUsd: Record<Regime, number>;
   barsInRegime: Record<Regime, number>;
@@ -358,6 +360,7 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
     monthsCount: monthlyReturnsPct.length,
     monthly,
     equityCurve: curve,
+    equityBars: curveTimes.map((t, i) => ({ t, equity: equityCurve[i] })),
     feesUsd,
     perRegimePnlUsd: perRegime,
     barsInRegime,

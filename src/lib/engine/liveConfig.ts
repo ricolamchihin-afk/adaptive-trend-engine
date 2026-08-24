@@ -29,11 +29,15 @@ export interface LiveConfig {
   credentialsPresent: boolean;
 }
 
+export function paperOnly(): boolean {
+  return envBool("PAPER_ONLY", false);
+}
+
 export function liveConfig(): LiveConfig {
   return {
     // Dry run defaults ON and is the only supported mode until a write adapter exists.
     dryRun: envBool("DRY_RUN", true),
-    liveTradingEnabled: envBool("LIVE_TRADING_ENABLED", false),
+    liveTradingEnabled: paperOnly() ? false : envBool("LIVE_TRADING_ENABLED", false),
     exchange: process.env.EXCHANGE ?? STRATEGY.venue,
     accountLabel: process.env.EXCHANGE_ACCOUNT_LABEL ?? "",
     capitalUsd: envNum("SG_CAPITAL_USD", STRATEGY.capitalUsd),
