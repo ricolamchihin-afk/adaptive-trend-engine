@@ -18,6 +18,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Snapshot } from "@/lib/engine/runtime";
 import type { BacktestReport } from "@/lib/engine/backtest";
+import type { PaperLabReport } from "@/lib/engine/paperLab";
 import type { Regime } from "@/lib/engine/types";
 import { pct, usd } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -199,6 +200,9 @@ export function ReadinessConsole() {
   const [sendResult, setSendResult] = useState<string | null>(null);
   const [goLive, setGoLive] = useState<GoLiveResponse | null>(null);
   const [checkingGoLive, setCheckingGoLive] = useState(false);
+  const [paperLab, setPaperLab] = useState<PaperLabReport | null>(null);
+  const [paperLabError, setPaperLabError] = useState<string | null>(null);
+  const [paperRunning, setPaperRunning] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -309,6 +313,21 @@ export function ReadinessConsole() {
       await load();
     } finally {
       setKilling(false);
+    }
+  }
+
+  async function runPaperLab(years = 1) {
+    setPaperRunning(true);
+    setPaperLabError(null);
+    try {
+      const response = await fetch(`/api/paper-lab?years=${years}`, { cache: "no-store" });
+      const data = (await response.json()) as PaperLabReport & { error?: string };
+      if (!response.ok) throw new Error(data.error || "paper_lab_failed");
+      setPaperLab(data);
+    } catch (err) {
+      setPaperLabError(err instanceof Error ? err.message : "paper_lab_failed");
+    } finally {
+      setPaperRunning(false);
     }
   }
 
@@ -498,6 +517,7 @@ export function ReadinessConsole() {
         <Tabs defaultValue="backtest" className="space-y-4">
           <TabsList className="bg-[#14181f]">
             <TabsTrigger value="backtest">Backtest lab</TabsTrigger>
+            <TabsTrigger value="paper">Paper books</TabsTrigger>
             <TabsTrigger value="dryrun">Dry run</TabsTrigger>
             <TabsTrigger value="golive">Go-live</TabsTrigger>
             <TabsTrigger value="leverage">Leverage &amp; ROE</TabsTrigger>
@@ -638,6 +658,86 @@ export function ReadinessConsole() {
                   <p className="text-sm text-zinc-400">
                     No backtest yet. Run it to see total return, drawdown, trade stats, the equity
                     curve, and the monthly breakdown.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="paper">
+            <Card className="border-white/10 bg-[#14181f]">
+              <CardHeader>
+                <CardTitle>Paper books — ETH, BNB, equity perps</CardTitle>
+                <CardDescription>
+                  Same Turtle defaults as live BTC, independent $1000 paper books on public
+                  Hyperliquid 4h candles. Does not place orders. BTC is a reference column only.
+                  Crypto names are correlated; equities (`xyz:` HIP-3) are the diversifier.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={() => void runPaperLab(1)} disabled={paperRunning}>
+                    {paperRunning ? "Walking books..." : "Run 1y Sharpe"}
+                  </Button>
+                </div>
+                {paperLabError ? (
+                  <Alert variant="destructive">
+                    <AlertTitle>Paper lab failed</AlertTitle>
+                    <AlertDescription>{paperLabError}</AlertDescription>
+                  </Alert>
+                ) : null}
+                {paperLab ? (
+                  <>
+                    <p className="text-xs text-zinc-500">{paperLab.note}</p>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="border-white/10">
+                            <TableHead>Book</TableHead>
+                            <TableHead>Sleeve</TableHead>
+                            <TableHead className="text-right">Sharpe</TableHead>
+                            <TableHead className="text-right">CAGR</TableHead>
+                            <TableHead className="text-right">Max DD</TableHead>
+                            <TableHead className="text-right">Trades</TableHead>
+                            <TableHead className="text-right">Days</TableHead>
+                            <TableHead className="text-right">p</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {paperLab.books.map((row) => (
+                            <TableRow key={row.book.id} className="border-white/10">
+                              <TableCell>
+                                <div className="font-medium text-zinc-100">{row.book.label}</div>
+                                <div className="text-xs text-zinc-500">{row.book.coin}</div>
+                              </TableCell>
+                              <TableCell className="text-xs text-zinc-400">
+                                {row.book.sleeve}
+                                {row.book.role === "reference" ? " · ref" : ""}
+                                {row.shortHistory ? " · short hist" : ""}
+                              </TableCell>
+                              <TableCell className={cn("text-right font-mono text-xs", pnlClass(row.sharpe ?? 0))}>
+                                {row.ok && row.sharpe !== null ? row.sharpe.toFixed(2) : row.error ?? "-"}
+                              </TableCell>
+                              <TableCell className={cn("text-right font-mono text-xs", pnlClass(row.cagrPct))}>
+                                {signed(row.cagrPct)}%
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-xs text-rose-300">
+                                -{row.maxDrawdownPct.toFixed(1)}%
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-xs">{row.trades}</TableCell>
+                              <TableCell className="text-right font-mono text-xs">{row.durationDays.toFixed(0)}</TableCell>
+                              <TableCell className="text-right font-mono text-xs">
+                                {row.pValue === null ? "-" : row.pValue.toFixed(3)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-zinc-400">
+                    Run 1y Sharpe to walk ETH, BNB, and the equity perps. Live BTC is not submitted from this tab.
                   </p>
                 )}
               </CardContent>

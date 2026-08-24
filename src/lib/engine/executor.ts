@@ -1,4 +1,4 @@
-import type { LiveConfig } from "./liveConfig";
+import { paperOnly, type LiveConfig } from "./liveConfig";
 import { PhoenixPerpExecutor, phoenixConfigured } from "./phoenixExecutor";
 
 export interface OrderIntent {
@@ -37,6 +37,9 @@ export class PaperExecutor implements Executor {
 // gate), so this stays paper-safe until that deliberate step.
 export function getExecutor(cfg: LiveConfig): Executor {
   void cfg;
+  if (paperOnly()) {
+    return new PaperExecutor();
+  }
   if (phoenixConfigured()) {
     return new PhoenixPerpExecutor();
   }

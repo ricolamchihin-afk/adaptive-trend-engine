@@ -115,6 +115,7 @@ export class PhoenixPerpExecutor implements Executor {
   readonly name = "phoenix-perp";
 
   get canTrade(): boolean {
+    if ((process.env.PAPER_ONLY ?? "").toLowerCase() === "true") return false;
     const e = phoenixEnv();
     const liveOn = (process.env.LIVE_TRADING_ENABLED ?? "").toLowerCase() === "true";
     return Boolean(liveOn && e.verified && e.apiUrl && e.rpcUrl && phoenixHasSigner());
