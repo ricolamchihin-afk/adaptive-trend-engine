@@ -10,6 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ellipsis-labs/rise": "^0.4.67",
+    "@solana/web3.js": "^1.98.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.33.0",

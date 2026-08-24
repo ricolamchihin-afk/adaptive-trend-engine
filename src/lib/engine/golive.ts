@@ -1,5 +1,6 @@
 import { getExecutor } from "./executor";
 import type { LiveConfig } from "./liveConfig";
+import { phoenixEnv } from "./phoenixExecutor";
 
 export interface ReadinessItem {
   id: string;
@@ -24,6 +25,7 @@ export function goLiveReadiness(
   ctx: { marketOk: boolean; telegramOk: boolean },
 ): GoLiveReadiness {
   const executor = getExecutor(cfg);
+  const phoenix = phoenixEnv();
   const signerPresent = cfg.credentialsPresent || Boolean(process.env.PHOENIX_AUTHORITY);
 
   const items: ReadinessItem[] = [
@@ -71,18 +73,35 @@ export function goLiveReadiness(
     },
     {
       id: "adapter",
-      label: "Exchange write adapter implemented & testnet-verified",
-      ok: executor.canTrade,
-      detail: executor.canTrade
-        ? "Live adapter ready."
-        : "Not built. Real order submission requires a vetted Phoenix adapter proven on testnet.",
+      label: "Exchange write adapter implemented (Phoenix Rise SDK)",
+      ok: executor.name === "phoenix-perp",
+      detail:
+        executor.name === "phoenix-perp"
+          ? "Phoenix Perpetuals adapter wired (build/sign/send via @ellipsis-labs/rise)."
+          : "Phoenix not configured (set PHOENIX_API_URL, SOLANA_RPC_URL, PHOENIX_AUTHORITY).",
+      blocking: true,
+    },
+    {
+      id: "verified",
+      label: "Adapter testnet-verified (PHOENIX_ADAPTER_VERIFIED)",
+      ok: phoenix.verified,
+      detail: phoenix.verified
+        ? "Marked verified — order submission is enabled."
+        : "Not verified. Prove the adapter on testnet with tiny size, then set PHOENIX_ADAPTER_VERIFIED=true.",
+      blocking: true,
+    },
+    {
+      id: "rpc",
+      label: "Solana RPC endpoint configured",
+      ok: Boolean(process.env.SOLANA_RPC_URL),
+      detail: process.env.SOLANA_RPC_URL ? "SOLANA_RPC_URL set." : "Set SOLANA_RPC_URL for order submission.",
       blocking: true,
     },
     {
       id: "funded",
-      label: "Wallet funded (verified on-chain)",
+      label: "Wallet funded (collateral on Phoenix)",
       ok: false,
-      detail: "Cannot verify balance without the live adapter; confirm funding before enabling.",
+      detail: "Verify collateral via the Phoenix adapter's account read before enabling; keep unfunded until testnet passes.",
       blocking: true,
     },
     {

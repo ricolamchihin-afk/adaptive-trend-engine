@@ -1,4 +1,5 @@
 import type { LiveConfig } from "./liveConfig";
+import { PhoenixPerpExecutor, phoenixEnv } from "./phoenixExecutor";
 
 export interface OrderIntent {
   action: string;
@@ -30,28 +31,15 @@ export class PaperExecutor implements Executor {
   }
 }
 
-// Placeholder for the real Phoenix venue adapter. It intentionally refuses to trade:
-// real order submission must be implemented against Phoenix's verified API and proven
-// on testnet / minimal size before `canTrade` is flipped true. Faking this risks funds.
-export class PhoenixLiveExecutor implements Executor {
-  readonly name = "phoenix-live";
-  readonly canTrade = false;
-  async submit(): Promise<ExecutionResult> {
-    throw new Error(
-      "phoenix_live_adapter_not_implemented: build and testnet-verify the Phoenix order adapter before enabling live trading",
-    );
-  }
-}
-
-// Returns the paper executor unless a genuinely trade-capable live adapter exists AND
-// live trading is enabled. The Phoenix adapter is not yet trade-capable, so this stays
-// on paper by construction.
+// Returns the Phoenix Perpetuals adapter when it is configured (API + authority set),
+// otherwise the safe paper executor. The Phoenix adapter still refuses to actually
+// send orders until it is testnet-verified and live trading is enabled (its canTrade
+// gate), so this stays paper-safe until that deliberate step.
 export function getExecutor(cfg: LiveConfig): Executor {
-  if (cfg.liveTradingEnabled) {
-    const live = new PhoenixLiveExecutor();
-    if (live.canTrade) {
-      return live;
-    }
+  void cfg;
+  const e = phoenixEnv();
+  if (e.apiUrl && e.authority) {
+    return new PhoenixPerpExecutor();
   }
   return new PaperExecutor();
 }
