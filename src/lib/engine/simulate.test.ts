@@ -22,7 +22,7 @@ function feat(
     exitLow: null,
     atr: 500,
     adx: 30, // above the trend-strength gate so entries can fire in tests
-    rsi: 60,
+    rsi: 50, // neutral: passes both the long (>=50) and short (<=50) RSI gate
     dailyDir: 0,
     ...extra,
   };

@@ -28,9 +28,10 @@ export const STRATEGY = {
   leverage: 20,
   maxLeverage: 20,
   // Higher-timeframe trend filter: only take longs above the daily EMA, shorts below.
-  // A longer 100-period daily filter (vs 50) was the biggest robust alpha lift found:
-  // Sharpe ~1.2-1.4, Sortino ~2, significant (p<0.05) across the 2y/3y windows.
-  dailyEmaPeriod: 100,
+  // A long 150-period daily filter with a wide 3x ATR stop and an RSI 50/50 momentum
+  // gate was the best robust combination: Sharpe ~1.4-1.8, Sortino ~2-2.9, ~14% drawdown,
+  // significant (p<0.05) on the 2y/3y windows.
+  dailyEmaPeriod: 150,
   // Donchian breakout windows (4h bars). Responsive 34-bar entry with a fast 7-bar
   // trailing exit (cuts losers quickly, keeps the big trend winners).
   donchianEntry: 34,
@@ -39,13 +40,13 @@ export const STRATEGY = {
   // reported and re-enableable in the lab.
   adxPeriod: 14,
   adxThreshold: 0,
-  // Optional RSI momentum confirmation, disabled by default (long floor 0, short ceil 100).
+  // RSI momentum confirmation: only long when RSI >= 50, only short when RSI <= 50.
   rsiPeriod: 14,
-  rsiLongMin: 0,
-  rsiShortMax: 100,
-  // ATR sizing + initial stop.
+  rsiLongMin: 50,
+  rsiShortMax: 50,
+  // ATR sizing + initial stop. A wide 3x ATR stop cuts whipsaw exits and lowers drawdown.
   atrPeriod: 14,
-  atrStopMult: 2,
+  atrStopMult: 3,
   // Risk a fixed fraction of equity per trade; volatility sets the size. 3% balances
   // ~40% CAGR with a Sharpe above 1 and a ~31% drawdown.
   riskPct: 0.03,

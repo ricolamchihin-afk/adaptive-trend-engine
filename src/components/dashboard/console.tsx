@@ -47,13 +47,13 @@ const DEFAULT_LAB: LabParams = {
   donchianEntry: 34,
   donchianExit: 7,
   atrPeriod: 14,
-  atrStopMult: 2,
+  atrStopMult: 3,
   adxPeriod: 14,
   adxThreshold: 0,
-  dailyEma: 100,
+  dailyEma: 150,
   rsiPeriod: 14,
-  rsiLongMin: 0,
-  rsiShortMax: 100,
+  rsiLongMin: 50,
+  rsiShortMax: 50,
 };
 
 interface ConnectionsResponse {
