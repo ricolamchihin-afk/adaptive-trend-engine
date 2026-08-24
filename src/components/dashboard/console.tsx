@@ -39,6 +39,7 @@ interface LabParams {
   rsiPeriod: number;
   rsiLongMin: number;
   rsiShortMax: number;
+  takeProfitRoePct: number;
 }
 
 const DEFAULT_LAB: LabParams = {
@@ -56,6 +57,7 @@ const DEFAULT_LAB: LabParams = {
   rsiPeriod: 14,
   rsiLongMin: 50,
   rsiShortMax: 50,
+  takeProfitRoePct: 0,
 };
 
 interface ConnectionsResponse {
@@ -111,6 +113,7 @@ const LAB_FIELDS: Array<{ key: keyof LabParams; label: string; step?: number; hi
   { key: "rsiPeriod", label: "RSI period", hint: "momentum indicator" },
   { key: "rsiLongMin", label: "RSI long ≥", hint: "0 disables (e.g. 50)" },
   { key: "rsiShortMax", label: "RSI short ≤", hint: "100 disables (e.g. 50)" },
+  { key: "takeProfitRoePct", label: "Take-profit ROE %", step: 5, hint: "0 = let winners run; e.g. 20" },
 ];
 
 function pnlClass(value: number): string {
@@ -291,6 +294,7 @@ export function ReadinessConsole() {
         rsiPeriod: String(p.rsiPeriod),
         rsiLongMin: String(p.rsiLongMin),
         rsiShortMax: String(p.rsiShortMax),
+        tp: String(p.takeProfitRoePct),
       });
       const response = await fetch(`/api/backtest?${q}`, { cache: "no-store" });
       const data = (await response.json()) as BacktestReport & { error?: string };

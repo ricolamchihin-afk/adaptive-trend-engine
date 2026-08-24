@@ -12,6 +12,8 @@ export interface SimConfig {
   adxThreshold: number;
   rsiLongMin: number;
   rsiShortMax: number;
+  // Fixed take-profit in ROE % of the equity at entry. 0 disables it (let winners run).
+  takeProfitRoePct: number;
 }
 
 // 4h bars per year, for annualizing the Sharpe ratio.
@@ -37,6 +39,7 @@ export function defaultSimConfig(): SimConfig {
     adxThreshold: STRATEGY.adxThreshold,
     rsiLongMin: STRATEGY.rsiLongMin,
     rsiShortMax: STRATEGY.rsiShortMax,
+    takeProfitRoePct: STRATEGY.takeProfitRoePct,
   };
 }
 
@@ -87,6 +90,7 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
   let posBtc = 0;
   let entry = 0;
   let stopPrice = 0;
+  let entryEquity = cfg.capitalUsd;
 
   let feesUsd = 0;
   let trades = 0;
@@ -147,6 +151,7 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
     feesUsd += fee;
     posBtc = sign * sizeBtc;
     entry = fill;
+    entryEquity = equity;
     stopPrice = sign > 0 ? fill - stopDist : fill + stopDist;
     if (sign < 0) everShort = true;
   }
@@ -160,6 +165,12 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
       continue;
     }
 
+    // Take-profit price such that pnl / entryEquity == takeProfitRoePct.
+    const tpEnabled = cfg.takeProfitRoePct > 0 && posBtc !== 0;
+    const tpPrice = tpEnabled
+      ? entry + ((cfg.takeProfitRoePct / 100) * entryEquity) / posBtc
+      : NaN;
+
     let justExited = false;
     if (posBtc > 0) {
       if (f.exitLow !== null) stopPrice = Math.max(stopPrice, f.exitLow);
@@ -171,6 +182,9 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
         const fill = candle.open < stopPrice ? candle.open : stopPrice;
         closeAt(fill, "LONG", fill <= liq);
         justExited = true;
+      } else if (tpEnabled && candle.high >= tpPrice) {
+        closeAt(candle.open > tpPrice ? candle.open : tpPrice, "LONG");
+        justExited = true;
       }
     } else if (posBtc < 0) {
       if (f.exitHigh !== null) stopPrice = Math.min(stopPrice, f.exitHigh);
@@ -181,6 +195,9 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
       } else if (candle.high >= stopPrice) {
         const fill = candle.open > stopPrice ? candle.open : stopPrice;
         closeAt(fill, "SHORT", fill >= liq);
+        justExited = true;
+      } else if (tpEnabled && candle.low <= tpPrice) {
+        closeAt(candle.open < tpPrice ? candle.open : tpPrice, "SHORT");
         justExited = true;
       }
     }

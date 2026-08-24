@@ -23,6 +23,7 @@ export async function GET(request: Request) {
       adxThreshold: num(params, "adx"),
       rsiLongMin: num(params, "rsiLongMin"),
       rsiShortMax: num(params, "rsiShortMax"),
+      takeProfitRoePct: num(params, "tp"),
     };
     const feat = {
       donchianEntry: num(params, "entry"),

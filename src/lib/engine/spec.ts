@@ -45,6 +45,9 @@ export const STRATEGY = {
   rsiPeriod: 14,
   rsiLongMin: 50,
   rsiShortMax: 50,
+  // Optional fixed take-profit in ROE % of equity at entry. 0 = let winners run to
+  // the trailing exit (default). Set e.g. 20 to close a winner at +20% ROE.
+  takeProfitRoePct: 0,
   // ATR sizing + initial stop. A wide 3x ATR stop cuts whipsaw exits and lowers drawdown.
   atrPeriod: 14,
   atrStopMult: 3,
