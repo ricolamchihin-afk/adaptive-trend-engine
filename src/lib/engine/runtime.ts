@@ -5,6 +5,7 @@ import {
 } from "./leverage";
 import { loadYearMarket } from "./market-data";
 import { liveConfig } from "./liveConfig";
+import { PhoenixPerpExecutor } from "./phoenixExecutor";
 import { productionBoundary } from "./production";
 import { EPOCH_ID, EPOCH_TITLE, SPEC_HASH, STRATEGY } from "./spec";
 import { buildFeatures } from "./strategy";
@@ -34,12 +35,16 @@ function priceLabel(value: number | null): string {
 export async function getSnapshot() {
   // Need ~1y of 4h + EMA150 daily warmup so the live signal matches the backtest
   // (short loadMarket lookback left dailyDir=0 and the book stuck FLAT).
-  const market = await loadYearMarket(Date.now(), 365);
+  const [market, phoenixMark] = await Promise.all([
+    loadYearMarket(Date.now(), 365),
+    new PhoenixPerpExecutor().btcMark().catch(() => null),
+  ]);
   const features = buildFeatures(market.series);
   const sim = runSimulation(features, defaultSimConfig());
   const last = features[features.length - 1];
   const killed = paperKilled();
-  const mark = market.mark ?? 0;
+  const markSource = phoenixMark && phoenixMark > 0 ? "phoenix" : "hyperliquid";
+  const mark = phoenixMark && phoenixMark > 0 ? phoenixMark : (market.mark ?? 0);
 
   const cfg = liveConfig();
   const paperSide: Regime = killed ? "FLAT" : sim.finalSide;
@@ -112,6 +117,7 @@ export async function getSnapshot() {
         ? new Date(market.lastClosed1m.openTime).toISOString()
         : null,
       mark,
+      markSource,
       warning: market.warning,
     },
     regime: {

@@ -50,3 +50,4 @@ data/phase7_9_readiness/heartbeat.json
 data/phase7_9_readiness/*.jsonl
 data/phase7_9_readiness/venues.json
 data/auto-loop-state.json
+data/equity-curve.json

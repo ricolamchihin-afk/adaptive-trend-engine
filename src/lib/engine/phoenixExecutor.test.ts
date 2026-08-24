@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { btcPositionFromTraderSnapshot, collateralUsdFromTraderSnapshot } from "./phoenixExecutor";
+import { btcPositionFromTraderSnapshot, collateralUsdFromTraderSnapshot, markFromMarketStats } from "./phoenixExecutor";
 
 describe("collateralUsdFromTraderSnapshot", () => {
   it("converts Rise quote lots (1e6 = $1) from subaccount collateral", () => {
@@ -43,5 +43,13 @@ describe("btcPositionFromTraderSnapshot", () => {
     expect(btcPositionFromTraderSnapshot({ snapshot: { subaccounts: [{ positions: [] }] } }).side).toBe(
       "FLAT",
     );
+  });
+});
+
+describe("markFromMarketStats", () => {
+  it("reads snake_case or camelCase mark", () => {
+    expect(markFromMarketStats({ mark_price: 77835 })).toBe(77835);
+    expect(markFromMarketStats({ markPrice: 77840.5 })).toBe(77840.5);
+    expect(markFromMarketStats({ mark_price: 0 })).toBeNull();
   });
 });

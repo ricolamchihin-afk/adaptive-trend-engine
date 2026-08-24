@@ -70,6 +70,17 @@ const DEFAULT_LAB: LabParams = {
   emaSlopeMinPct: 0,
 };
 
+interface EquityReport {
+  points: Array<{ t: number; equity: number; source: string }>;
+  startUsd: number;
+  lastUsd: number;
+  tradingPnlUsd: number;
+  returnPct: number;
+  maxDdPct: number;
+  note: string;
+  venueOk: boolean;
+}
+
 interface GoLiveResponse {
   ready: boolean;
   mode: string;
@@ -199,6 +210,7 @@ export function ReadinessConsole() {
   const [sendResult, setSendResult] = useState<string | null>(null);
   const [goLive, setGoLive] = useState<GoLiveResponse | null>(null);
   const [checkingGoLive, setCheckingGoLive] = useState(false);
+  const [equity, setEquity] = useState<EquityReport | null>(null);
   const [autoLoop, setAutoLoop] = useState<{
     running: boolean;
     autoEnabled: boolean;
@@ -247,6 +259,8 @@ export function ReadinessConsole() {
         setError(null);
         const auto = await fetch("/api/auto", { cache: "no-store" });
         if (!cancelled && auto.ok) setAutoLoop((await auto.json()) as NonNullable<typeof autoLoop>);
+        const eq = await fetch("/api/equity", { cache: "no-store" });
+        if (!cancelled && eq.ok) setEquity((await eq.json()) as EquityReport);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "snapshot_failed");
       } finally {
@@ -464,7 +478,13 @@ export function ReadinessConsole() {
           <Metric
             label="BTC mark"
             value={market.mark ? usd(market.mark, 0) : "-"}
-            hint={market.lastClosed ? `live mid · last 4h bar ${market.lastClosed}` : "live mid"}
+            hint={
+              market.lastClosed
+                ? `${market.markSource === "phoenix" ? "Phoenix mark" : "HL fallback"} · last 4h bar ${market.lastClosed}`
+                : market.markSource === "phoenix"
+                  ? "Phoenix mark"
+                  : "live mid"
+            }
           />
           <Metric
             label="Position"
@@ -491,6 +511,38 @@ export function ReadinessConsole() {
             valueClass={pnlClass(recent.totalReturnPct)}
           />
         </section>
+
+        <Card className="border-white/10 bg-[#14181f]">
+          <CardHeader>
+            <CardTitle>Live equity</CardTitle>
+            <CardDescription>
+              Phoenix collateral, not the Hyperliquid backtest. If this PC sleeps, the next load
+              backfills from Phoenix deposits and fills and marks open risk on closed 4h bars.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {equity && equity.points.length >= 2 ? (
+              <>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Metric label="Now" value={usd(equity.lastUsd, 0)} hint={equity.venueOk ? "Phoenix" : "local"} />
+                  <Metric
+                    label="Trading P&L"
+                    value={usd(equity.tradingPnlUsd)}
+                    hint="ex-deposits / withdrawals"
+                    valueClass={pnlClass(equity.tradingPnlUsd)}
+                  />
+                  <Metric label="Max DD" value={`-${equity.maxDdPct.toFixed(1)}%`} hint="peak to trough on this curve" valueClass="text-rose-300" />
+                </div>
+                <EquityChart points={equity.points} start={equity.startUsd} />
+                <p className="text-xs text-zinc-500">{equity.note}</p>
+              </>
+            ) : (
+              <p className="text-sm text-zinc-400">
+                Waiting for Phoenix history or the first live tick. Keep the bot running.
+              </p>
+            )}
+          </CardContent>
+        </Card>
 
         <Card className="border-white/10 bg-[#14181f]">
           <CardHeader>

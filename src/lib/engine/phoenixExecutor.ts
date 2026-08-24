@@ -1,4 +1,5 @@
 import type { Executor, ExecutionResult, OrderIntent } from "./executor";
+import { collateralLiteFromPhoenix, fillLiteFromPhoenix, type CollateralEventLite, type FillLite } from "./equityCurve";
 
 // Phoenix Perpetuals adapter (Ellipsis Labs Rise SDK). Read paths (exchange metadata,
 // collateral/funded check) are safe. Order submission is GATED: it builds the real
@@ -156,6 +157,60 @@ function kitIxToWeb3(
   });
 }
 
+type RiseApi = {
+  exchange: { ready: () => Promise<unknown> };
+  api: {
+    markets: () => { getLatestMarketStats: (s: string) => Promise<Record<string, unknown>> };
+    traders: () => { getTraderStateSnapshot: (a: string, o: unknown) => Promise<unknown> };
+    collateral: () => {
+      getTraderCollateralHistory: (
+        a: string,
+        r?: unknown,
+      ) => Promise<{
+        data?: Array<{ eventType: string; amount: number; collateralAfter: number; timestamp: number }>;
+        nextCursor?: string | null;
+        hasMore?: boolean;
+      }>;
+    };
+    trades: () => {
+      getTraderTradesHistory: (
+        a: string,
+        r?: unknown,
+      ) => Promise<{
+        data?: Array<{
+          timestamp: number;
+          price: string;
+          realizedPnl: string;
+          fees: string;
+          baseLotsAfter: string;
+        }>;
+        nextCursor?: string | null;
+        hasMore?: boolean;
+      }>;
+    };
+  };
+};
+
+async function phoenixSession(): Promise<{ api: RiseApi; pubkey: string } | { error: string }> {
+  const e = phoenixEnv();
+  if (!e.apiUrl || !e.rpcUrl) return { error: "Set PHOENIX_API_URL and PHOENIX_SOLANA_RPC." };
+  const rise = (await import("@ellipsis-labs/rise")) as unknown as {
+    createPhoenixClient: (o: unknown) => RiseApi;
+  };
+  const web3 = await import("@solana/web3.js");
+  const { pubkey } = await resolveSigner(web3);
+  if (!pubkey) return { error: "No signer or authority public key available." };
+  const api = rise.createPhoenixClient({ apiUrl: e.apiUrl, rpcUrl: e.rpcUrl });
+  await api.exchange.ready();
+  return { api, pubkey };
+}
+
+export function markFromMarketStats(raw: Record<string, unknown> | null | undefined): number | null {
+  if (!raw) return null;
+  const n = Number(raw.mark_price ?? raw.markPrice);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 export class PhoenixPerpExecutor implements Executor {
   readonly name = "phoenix-perp";
 
@@ -172,25 +227,11 @@ export class PhoenixPerpExecutor implements Executor {
     detail: string;
     position?: PhoenixBtcPosition;
   }> {
-    const e = phoenixEnv();
-    if (!e.apiUrl || !e.rpcUrl) {
-      return { ok: false, detail: "Set PHOENIX_API_URL and PHOENIX_SOLANA_RPC." };
-    }
+    const session = await phoenixSession();
+    if ("error" in session) return { ok: false, detail: session.error };
     try {
-      const rise = (await import("@ellipsis-labs/rise")) as unknown as {
-        createPhoenixClient: (o: unknown) => {
-          exchange: { ready: () => Promise<unknown> };
-          api: { traders: () => { getTraderStateSnapshot: (a: string, o: unknown) => Promise<unknown> } };
-        };
-      };
-      const web3 = await import("@solana/web3.js");
-      const { pubkey } = await resolveSigner(web3);
-      if (!pubkey) {
-        return { ok: false, detail: "No signer or authority public key available." };
-      }
-      const client = rise.createPhoenixClient({ apiUrl: e.apiUrl, rpcUrl: e.rpcUrl });
-      await client.exchange.ready();
-      const snap = (await client.api.traders().getTraderStateSnapshot(pubkey, {
+      const e = phoenixEnv();
+      const snap = (await session.api.api.traders().getTraderStateSnapshot(session.pubkey, {
         traderPdaIndex: e.traderPdaIndex,
       })) as {
         snapshot?: {
@@ -212,11 +253,61 @@ export class PhoenixPerpExecutor implements Executor {
         ok: typeof collateralUsd === "number" && collateralUsd > 0,
         collateralUsd,
         position,
-        detail: `Trader ${pubkey.slice(0, 6)}… on ${e.marketSymbol}; collateral ${collateralUsd ?? "unknown"}; ${position.side}.`,
+        detail: `Trader ${session.pubkey.slice(0, 6)}… on ${e.marketSymbol}; collateral ${collateralUsd ?? "unknown"}; ${position.side}.`,
       };
     } catch (error) {
       return { ok: false, detail: `Phoenix read failed: ${error instanceof Error ? error.message : "unknown"}` };
     }
+  }
+
+  async btcMark(): Promise<number | null> {
+    const session = await phoenixSession();
+    if ("error" in session) return null;
+    try {
+      const stats = await session.api.api.markets().getLatestMarketStats(phoenixEnv().marketSymbol);
+      return markFromMarketStats(stats);
+    } catch {
+      return null;
+    }
+  }
+
+  async collateralEvents(): Promise<CollateralEventLite[]> {
+    const session = await phoenixSession();
+    if ("error" in session) return [];
+    const rows: CollateralEventLite[] = [];
+    let cursor: string | undefined;
+    // ponytail: 20 pages × 200 = 4k events; raise if the book lives years and paging stalls.
+    for (let page = 0; page < 20; page += 1) {
+      const res = await session.api.api.collateral().getTraderCollateralHistory(session.pubkey, {
+        limit: 200,
+        pdaIndex: phoenixEnv().traderPdaIndex,
+        ...(cursor ? { nextCursor: cursor } : {}),
+      });
+      rows.push(...(res.data ?? []).map(collateralLiteFromPhoenix));
+      if (!res.hasMore || !res.nextCursor) break;
+      cursor = res.nextCursor;
+    }
+    return rows;
+  }
+
+  async btcFills(): Promise<FillLite[]> {
+    const session = await phoenixSession();
+    if ("error" in session) return [];
+    const rows: FillLite[] = [];
+    let cursor: string | undefined;
+    // ponytail: same 20-page ceiling as collateral; oldest fills drop off after that.
+    for (let page = 0; page < 20; page += 1) {
+      const res = await session.api.api.trades().getTraderTradesHistory(session.pubkey, {
+        limit: 200,
+        pdaIndex: phoenixEnv().traderPdaIndex,
+        marketSymbol: phoenixEnv().marketSymbol,
+        ...(cursor ? { cursor } : {}),
+      });
+      rows.push(...(res.data ?? []).map(fillLiteFromPhoenix));
+      if (!res.hasMore || !res.nextCursor) break;
+      cursor = res.nextCursor ?? undefined;
+    }
+    return rows;
   }
 
   async submit(intent: OrderIntent): Promise<ExecutionResult> {
