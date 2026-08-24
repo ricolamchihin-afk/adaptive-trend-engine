@@ -21,6 +21,8 @@ function tick(over: Partial<AutoTickInput>): AutoTickInput {
     signalSide: "FLAT",
     openSizeBtc: 0,
     openStop: null,
+    riskHalt: false,
+    riskHaltReason: "",
     ...over,
   };
 }
@@ -112,6 +114,24 @@ describe("planAutoTick", () => {
   it("kill blocks new entries once flat", () => {
     const noOpen = planAutoTick(tick({ killed: true, freshEntry: true, signalSide: "LONG", openSizeBtc: 0.1 }));
     expect(noOpen.action).toBe("HOLD");
+  });
+
+  it("risk halt flattens and blocks new entries", () => {
+    const close = planAutoTick(
+      tick({
+        riskHalt: true,
+        riskHaltReason: "Max drawdown 40%.",
+        phoenixSide: "LONG",
+        phoenixSizeBtc: 0.1,
+        stop: 70_000,
+      }),
+    );
+    expect(close.action).toBe("CLOSE");
+    expect(close.reason).toMatch(/drawdown/i);
+    const block = planAutoTick(
+      tick({ riskHalt: true, riskHaltReason: "Max drawdown 40%.", freshEntry: true, signalSide: "LONG", openSizeBtc: 0.1 }),
+    );
+    expect(block.action).toBe("HOLD");
   });
 
   it("holds a live winner that has not hit stop or TP", () => {

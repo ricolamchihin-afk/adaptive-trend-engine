@@ -12,7 +12,7 @@ async function buildPlan() {
   const snapshot = await getSnapshot();
   const cfg = liveConfig();
   const funded = await new PhoenixPerpExecutor().accountState().catch(() => ({ ok: false as const, collateralUsd: undefined }));
-  const equityUsd = liveEquityUsd(cfg.capitalUsd, funded.collateralUsd);
+  const equityUsd = liveEquityUsd(cfg.capitalUsd, funded.collateralUsd, cfg.compound);
   const plan = planDryRun(
     { side: snapshot.position.side, sizeBtc: snapshot.position.sizeBtc, stopPrice: snapshot.position.stopPrice },
     snapshot.market.mark,

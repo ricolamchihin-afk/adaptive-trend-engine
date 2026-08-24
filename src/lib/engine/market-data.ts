@@ -219,6 +219,10 @@ export async function loadMarket(
   }
 }
 
+const yearCache = globalThis as typeof globalThis & {
+  __hlYearMarket?: { at: number; days: number; snap: MarketSnapshot };
+};
+
 // One-year market for the backtest: daily context (with EMA warmup) plus a full
 // year of 4h execution candles. The regime classifier only needs daily + 4h, so
 // no long 1m/15m history the public feed cannot serve is required.
@@ -226,6 +230,8 @@ export async function loadYearMarket(
   now = Date.now(),
   days = 365,
 ): Promise<MarketSnapshot> {
+  const hit = yearCache.__hlYearMarket;
+  if (hit && hit.days === days && now - hit.at < 45_000) return hit.snap;
   try {
     const [daily, fourHour, assetCtx] = await Promise.all([
       fetchCandles("1d", DAY_MS, (days + 90) * DAY_MS, now),
@@ -241,7 +247,7 @@ export async function loadYearMarket(
       nativeFundingRate: btcFundingRate(assetCtx),
     };
     const lastClosed = fourHour[fourHour.length - 1] ?? null;
-    return {
+    const snap: MarketSnapshot = {
       series,
       source: "hyperliquid_public",
       fetchedAt: now,
@@ -249,6 +255,8 @@ export async function loadYearMarket(
       mark: lastClosed?.close ?? null,
       warning: null,
     };
+    yearCache.__hlYearMarket = { at: now, days, snap };
+    return snap;
   } catch (error) {
     const series = syntheticSeries(now);
     const lastClosed = series.fourHour[series.fourHour.length - 1] ?? null;

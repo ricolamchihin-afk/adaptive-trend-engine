@@ -202,8 +202,10 @@ export function ReadinessConsole() {
   const [autoLoop, setAutoLoop] = useState<{
     running: boolean;
     autoEnabled: boolean;
+    compound?: boolean;
     canTrade: boolean;
     killed: boolean;
+    equityUsd?: number | null;
     lastTick: { at: string; action: string; reason: string; submitted: boolean } | null;
   } | null>(null);
 
@@ -415,8 +417,7 @@ export function ReadinessConsole() {
               One Phoenix book, {usd(strategy.capitalUsd, 0)}. Donchian breakout entries filtered by the
               daily trend, an ATR trailing stop, and volatility sizing that risks{" "}
               {(strategy.riskPct * 100).toFixed(1)}% per trade (up to {strategy.maxLeverage}x). The
-              server 4h loop opens and closes on Phoenix. You are not in the trade path. Kill
-              flattens the live book.
+              4h loop trades without you. Size compounds on Phoenix collateral. Kill flattens.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -426,7 +427,9 @@ export function ReadinessConsole() {
                 {autoLoop.killed
                   ? "Auto killed"
                   : autoLoop.running && autoLoop.canTrade
-                    ? "Auto 4h live"
+                    ? autoLoop.compound
+                      ? "Auto 4h · compounding"
+                      : "Auto 4h live"
                     : autoLoop.running
                       ? "Auto 4h idle"
                       : "Auto 4h off"}

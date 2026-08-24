@@ -36,6 +36,8 @@ export interface AutoTickInput {
   signalSide: Regime;
   openSizeBtc: number;
   openStop: number | null;
+  riskHalt: boolean;
+  riskHaltReason: string;
 }
 
 export interface AutoTickResult {
@@ -86,11 +88,15 @@ export function planAutoTick(i: AutoTickInput): AutoTickResult {
       i.phoenixSide === "LONG"
         ? longExit(i.mark, i.bar, i.stop, i.tp)
         : shortExit(i.mark, i.bar, i.stop, i.tp);
-    const flatten = i.killed || why !== null;
+    const flatten = i.killed || i.riskHalt || why !== null;
     if (flatten) {
       return {
         action: "CLOSE",
-        reason: i.killed ? "Kill switch — flatten Phoenix." : `${i.phoenixSide} ${why}.`,
+        reason: i.killed
+          ? "Kill switch — flatten Phoenix."
+          : i.riskHalt
+            ? i.riskHaltReason
+            : `${i.phoenixSide} ${why}.`,
         lastHandledBarMs: i.barOpenMs,
         book: null,
         closeSizeBtc: size,
@@ -107,6 +113,7 @@ export function planAutoTick(i: AutoTickInput): AutoTickResult {
   }
 
   if (i.killed) return hold("Kill switch on — no new entries.", i.lastHandledBarMs, null);
+  if (i.riskHalt) return hold(i.riskHaltReason, i.lastHandledBarMs, null);
 
   if (i.lastHandledBarMs === i.barOpenMs) {
     return hold("This 4h bar already handled.", i.lastHandledBarMs, null);

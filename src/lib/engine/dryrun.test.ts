@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { planDryRun } from "./dryrun";
-import { liveEquityUsd, type LiveConfig } from "./liveConfig";
+import { liveEquityUsd, scaledDailyLossUsd, drawdownHalted, type LiveConfig } from "./liveConfig";
 
 const cfg: LiveConfig = {
   dryRun: true,
@@ -15,6 +15,7 @@ const cfg: LiveConfig = {
   maxDrawdownPct: 25,
   credentialsPresent: false,
   auto4h: false,
+  compound: false,
 };
 
 describe("dry-run planner", () => {
@@ -74,12 +75,26 @@ describe("dry-run planner", () => {
     expect(plan.note).toMatch(/earlier bar/i);
   });
 
-  it("caps live equity at Phoenix collateral", () => {
+  it("caps live equity at Phoenix collateral unless compounding", () => {
     expect(liveEquityUsd(1000, 999.56)).toBeCloseTo(999.56, 6);
     expect(liveEquityUsd(1000, 2000)).toBe(1000);
     expect(liveEquityUsd(2000, 999.56)).toBeCloseTo(999.56, 6);
     expect(liveEquityUsd(2000, 2000)).toBe(2000);
     expect(liveEquityUsd(1000, undefined)).toBe(1000);
     expect(liveEquityUsd(1000, 0)).toBe(1000);
+  });
+
+  it("compounds on full collateral, and still cannot size above cash", () => {
+    expect(liveEquityUsd(2000, 2500, true)).toBe(2500);
+    expect(liveEquityUsd(2000, 999.56, true)).toBeCloseTo(999.56, 6);
+    expect(liveEquityUsd(2000, undefined, true)).toBe(2000);
+  });
+
+  it("scales the daily-loss budget with compounded equity", () => {
+    const live = { ...cfg, compound: true, capitalUsd: 2000, dailyLossLimitUsd: 400 };
+    expect(scaledDailyLossUsd(live, 2000)).toBe(400);
+    expect(scaledDailyLossUsd(live, 4000)).toBe(800);
+    expect(drawdownHalted(2000, 1200, 40)).toBe(true);
+    expect(drawdownHalted(2000, 1300, 40)).toBe(false);
   });
 });

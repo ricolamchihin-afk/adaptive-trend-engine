@@ -3,7 +3,7 @@ import path from "node:path";
 import { planAutoTick, tpPrice, trailStop, type AutoBook } from "./autoLoop";
 import { planDryRun } from "./dryrun";
 import { getExecutor } from "./executor";
-import { liveConfig, liveEquityUsd } from "./liveConfig";
+import { liveConfig, liveEquityUsd, scaledDailyLossUsd, drawdownHalted } from "./liveConfig";
 import { sendTelegram } from "./notify";
 import { PhoenixPerpExecutor } from "./phoenixExecutor";
 import { getSnapshot, isPaperKilled, setPaperKill } from "./runtime";
@@ -17,8 +17,11 @@ const ReduceOnlyClose = true;
 export interface AutoLoopStatus {
   running: boolean;
   autoEnabled: boolean;
+  compound: boolean;
   canTrade: boolean;
   killed: boolean;
+  equityUsd: number | null;
+  peakEquityUsd: number | null;
   lastHandledBarMs: number | null;
   book: AutoBook | null;
   lastTick: {
@@ -35,6 +38,25 @@ interface Persisted {
   lastHandledBarMs: number | null;
   book: AutoBook | null;
   lastTick: AutoLoopStatus["lastTick"];
+  peakEquityUsd: number;
+  dayUtc: string;
+  dayRealizedUsd: number;
+  lastHeartbeatBarMs: number | null;
+  lastEquityUsd: number | null;
+}
+
+function emptyPersist(): Persisted {
+  return {
+    killed: false,
+    lastHandledBarMs: null,
+    book: null,
+    lastTick: null,
+    peakEquityUsd: 0,
+    dayUtc: "",
+    dayRealizedUsd: 0,
+    lastHeartbeatBarMs: null,
+    lastEquityUsd: null,
+  };
 }
 
 const g = globalThis as typeof globalThis & {
@@ -46,7 +68,7 @@ function bag(): { started: boolean; ticking: boolean; persist: Persisted } {
     g.__ateAutoLoop = {
       started: false,
       ticking: false,
-      persist: { killed: false, lastHandledBarMs: null, book: null, lastTick: null },
+      persist: emptyPersist(),
     };
   }
   return g.__ateAutoLoop;
@@ -58,10 +80,16 @@ async function loadPersist(): Promise<void> {
     const raw = await readFile(STATE_PATH, "utf8");
     const parsed = JSON.parse(raw) as Persisted;
     b.persist = {
+      ...emptyPersist(),
       killed: Boolean(parsed.killed),
       lastHandledBarMs: typeof parsed.lastHandledBarMs === "number" ? parsed.lastHandledBarMs : null,
       book: parsed.book ?? null,
       lastTick: parsed.lastTick ?? null,
+      peakEquityUsd: typeof parsed.peakEquityUsd === "number" ? parsed.peakEquityUsd : 0,
+      dayUtc: typeof parsed.dayUtc === "string" ? parsed.dayUtc : "",
+      dayRealizedUsd: typeof parsed.dayRealizedUsd === "number" ? parsed.dayRealizedUsd : 0,
+      lastHeartbeatBarMs: typeof parsed.lastHeartbeatBarMs === "number" ? parsed.lastHeartbeatBarMs : null,
+      lastEquityUsd: typeof parsed.lastEquityUsd === "number" ? parsed.lastEquityUsd : null,
     };
     if (b.persist.killed) setPaperKill(true);
   } catch {
@@ -82,8 +110,11 @@ export function autoLoopStatus(): AutoLoopStatus {
   return {
     running: b.started,
     autoEnabled: cfg.auto4h,
+    compound: cfg.compound,
     canTrade: executor.canTrade,
     killed: b.persist.killed || isPaperKilled(),
+    equityUsd: b.persist.lastEquityUsd,
+    peakEquityUsd: b.persist.peakEquityUsd || null,
     lastHandledBarMs: b.persist.lastHandledBarMs,
     book: b.persist.book,
     lastTick: b.persist.lastTick,
@@ -128,7 +159,24 @@ export async function tickAutoLoop(): Promise<AutoLoopStatus> {
       position: { side: "FLAT" as const, sizeBtc: 0, entryUsd: null },
     }));
     const phoenix = funded.position ?? { side: "FLAT" as const, sizeBtc: 0, entryUsd: null };
-    const equityUsd = liveEquityUsd(cfg.capitalUsd, funded.collateralUsd);
+    const equityUsd = liveEquityUsd(cfg.capitalUsd, funded.collateralUsd, cfg.compound);
+    b.persist.lastEquityUsd = equityUsd;
+    const dayUtc = new Date().toISOString().slice(0, 10);
+    if (b.persist.dayUtc !== dayUtc) {
+      b.persist.dayUtc = dayUtc;
+      b.persist.dayRealizedUsd = 0;
+    }
+    b.persist.peakEquityUsd = Math.max(b.persist.peakEquityUsd, equityUsd);
+    const dailyBudget = scaledDailyLossUsd(cfg, equityUsd);
+    let riskHalt = false;
+    let riskHaltReason = "";
+    if (drawdownHalted(b.persist.peakEquityUsd, equityUsd, cfg.maxDrawdownPct)) {
+      riskHalt = true;
+      riskHaltReason = `Max drawdown ${cfg.maxDrawdownPct}% from peak $${Math.round(b.persist.peakEquityUsd)}.`;
+    } else if (dailyBudget > 0 && b.persist.dayRealizedUsd <= -dailyBudget) {
+      riskHalt = true;
+      riskHaltReason = `Daily loss $${Math.round(-b.persist.dayRealizedUsd)} hit the $${Math.round(dailyBudget)} budget.`;
+    }
     const simCfg = defaultSimConfig();
 
     const book = b.persist.book;
@@ -201,6 +249,8 @@ export async function tickAutoLoop(): Promise<AutoLoopStatus> {
       signalSide: snapshot.position.paperSide,
       openSizeBtc: openPlan.sizeBtc,
       openStop: openPlan.stopPrice,
+      riskHalt,
+      riskHaltReason,
     });
 
     let submitted = false;
@@ -217,6 +267,10 @@ export async function tickAutoLoop(): Promise<AutoLoopStatus> {
       });
       submitted = execution.submitted;
       message = execution.message;
+      if (submitted && book) {
+        const pnl = book.side === "LONG" ? (mark - book.entry) * book.sizeBtc : (book.entry - mark) * book.sizeBtc;
+        b.persist.dayRealizedUsd += pnl;
+      }
     } else if (planned.action === "OPEN_LONG" || planned.action === "OPEN_SHORT") {
       const execution = await executor.submit({
         action: planned.action,
@@ -257,7 +311,31 @@ export async function tickAutoLoop(): Promise<AutoLoopStatus> {
 
     if (planned.action !== "HOLD") {
       await sendTelegram(formatAutoTelegram(planned.action, planned.reason, mark, submitted, message));
+    } else if (b.persist.lastHeartbeatBarMs !== last.openTime) {
+      b.persist.lastHeartbeatBarMs = last.openTime;
+      await savePersist();
+      await sendTelegram(
+        formatAutoTelegram(
+          "WATCH",
+          `${cfg.compound ? "Compound on" : "Size capped"} · equity $${Math.round(equityUsd)} · ${planned.reason}`,
+          mark,
+          false,
+          phoenix.side === "FLAT" ? "No position." : `${phoenix.side} working.`,
+        ),
+      );
     }
+    return autoLoopStatus();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "tick_failed";
+    b.persist.lastTick = {
+      at: new Date().toISOString(),
+      action: "HOLD",
+      reason: `Auto tick error: ${message}`,
+      submitted: false,
+      message,
+    };
+    await savePersist().catch(() => undefined);
+    await sendTelegram(`[AUTO 4h] Tick failed: ${message}`).catch(() => undefined);
     return autoLoopStatus();
   } finally {
     b.ticking = false;
@@ -270,6 +348,14 @@ export async function killLive(): Promise<AutoLoopStatus> {
   setPaperKill(true);
   await savePersist();
   return tickAutoLoop();
+}
+
+export async function resumeLive(): Promise<AutoLoopStatus> {
+  const b = bag();
+  b.persist.killed = false;
+  setPaperKill(false);
+  await savePersist();
+  return autoLoopStatus();
 }
 
 export function startAutoLoop(): void {

@@ -53,8 +53,10 @@ export function goLiveReadiness(
     {
       id: "risk",
       label: "Hard risk limits set",
-      ok: cfg.maxNotionalUsd > 0 && cfg.dailyLossLimitUsd > 0,
-      detail: `Max notional $${cfg.maxNotionalUsd || 0}, daily loss $${cfg.dailyLossLimitUsd || 0}, max DD ${cfg.maxDrawdownPct || 0}%.`,
+      ok: (cfg.compound || cfg.maxNotionalUsd > 0) && cfg.dailyLossLimitUsd > 0,
+      detail: cfg.compound
+        ? `Compound on. 20x of live equity. Daily loss scales from $${cfg.dailyLossLimitUsd}, max DD ${cfg.maxDrawdownPct || 0}%.`
+        : `Max notional $${cfg.maxNotionalUsd || 0}, daily loss $${cfg.dailyLossLimitUsd || 0}, max DD ${cfg.maxDrawdownPct || 0}%.`,
       blocking: true,
     },
     {
@@ -62,7 +64,7 @@ export function goLiveReadiness(
       label: "4h auto-loop (LIVE_AUTO_4H)",
       ok: cfg.auto4h,
       detail: cfg.auto4h
-        ? "Server loop opens and closes on each closed 4h bar. Kill flattens Phoenix."
+        ? `Server loop opens and closes on each closed 4h bar${cfg.compound ? "; size compounds on Phoenix collateral" : ""}. Kill flattens Phoenix.`
         : "Auto off — entries only happen if you POST /api/dry-run.",
       blocking: false,
     },

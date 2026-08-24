@@ -98,7 +98,8 @@ export function planDryRun(
   let notionalUsd = Math.abs(sizeBtc) * mark;
 
   const leverageCap = equityUsd * cfg.maxLeverage;
-  const notionalCap = cfg.maxNotionalUsd > 0 ? cfg.maxNotionalUsd : Infinity;
+  // Compound: 20x of current equity is the cap. A static $40k would freeze size.
+  const notionalCap = cfg.compound || cfg.maxNotionalUsd <= 0 ? Infinity : cfg.maxNotionalUsd;
   const hardCap = Math.min(leverageCap, notionalCap);
   let notionalCapped = false;
   if (notionalUsd > hardCap && notionalUsd > 0) {
@@ -125,7 +126,7 @@ export function planDryRun(
     dryRun: true,
     liveSubmitted: false,
     note: notionalCapped
-      ? `Sized on $${Math.round(equityUsd)} equity — not sent. Size was clamped by your risk limit.`
-      : `Sized on $${Math.round(equityUsd)} live equity (10% / ${atrStopMult}×ATR). Dry run only — not sent.`,
+      ? `Sized on $${Math.round(equityUsd)} ${cfg.compound ? "compounded collateral" : "equity"} — size was clamped by your risk limit.`
+      : `Sized on $${Math.round(equityUsd)} ${cfg.compound ? "compounded collateral" : "live equity"} (10% / ${atrStopMult}×ATR).`,
   };
 }
