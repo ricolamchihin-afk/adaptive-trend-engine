@@ -9,10 +9,11 @@ export interface PaperBook {
   note?: string;
 }
 
-// Paper-only universe. Live Phoenix stays BTC on the go-live branch/agent.
-// Crypto = core Hyperliquid perps. Equities = trade.xyz HIP-3 (`xyz:TICKER`).
+// Paper-only universe. Phoenix BTC stays live on the go-live branch.
+// Decibel portfolio = candidate books only. Research candles are public Hyperliquid
+// (core perps + trade.xyz HIP-3 `xyz:TICKER`); Decibel is the intended live venue.
 export const PAPER_BOOKS: readonly PaperBook[] = [
-  { id: "btc", label: "BTC", coin: "BTC", sleeve: "crypto", role: "reference", note: "Live standalone book. Reference Sharpe only." },
+  { id: "btc", label: "BTC", coin: "BTC", sleeve: "crypto", role: "reference", note: "Phoenix live standalone. Not in the Decibel portfolio." },
   { id: "eth", label: "ETH", coin: "ETH", sleeve: "crypto", role: "candidate" },
   { id: "bnb", label: "BNB", coin: "BNB", sleeve: "crypto", role: "candidate" },
   { id: "tsla", label: "TSLA", coin: "xyz:TSLA", sleeve: "equity", role: "candidate" },
@@ -24,3 +25,5 @@ export const PAPER_BOOKS: readonly PaperBook[] = [
   { id: "meta", label: "META", coin: "xyz:META", sleeve: "equity", role: "candidate" },
   { id: "sp500", label: "SP500", coin: "xyz:SP500", sleeve: "equity", role: "candidate", note: "Index perp; shorter HL history than single names." },
 ];
+
+export const DECIBEL_PORTFOLIO_BOOKS: readonly PaperBook[] = PAPER_BOOKS.filter((b) => b.role === "candidate");

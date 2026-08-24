@@ -42,11 +42,11 @@ npm run dev     # console on http://127.0.0.1:43871
 ```
 
 Endpoints: `/api/snapshot` (live signal + position), `/api/backtest?years=N&...` (tunable
-BTC backtest), `/api/paper-lab?years=N` (ETH / BNB / equity paper Sharpe), `/api/sweep`
+BTC backtest), `/api/paper-lab?years=N` (Decibel equal-dollar portfolio Sharpe), `/api/sweep`
 (parameter sensitivity), `/api/dry-run` (order preview + Telegram), `/api/connections`
 (health), `/api/go-live` (readiness checklist), `/api/health`.
 
-Paper isolation (ETH + BNB + equity perps) lives on `cursor/multi-asset-paper-921b`.
+Paper isolation (Decibel portfolio: ETH + BNB + equities) lives on `cursor/multi-asset-paper-921b`.
 See `PAPER_SETUP.md`. Do not attach the live Phoenix signer to that agent.
 
 ## Configuration

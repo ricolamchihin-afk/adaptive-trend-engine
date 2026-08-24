@@ -517,7 +517,7 @@ export function ReadinessConsole() {
         <Tabs defaultValue="backtest" className="space-y-4">
           <TabsList className="bg-[#14181f]">
             <TabsTrigger value="backtest">Backtest lab</TabsTrigger>
-            <TabsTrigger value="paper">Paper books</TabsTrigger>
+            <TabsTrigger value="paper">Decibel portfolio</TabsTrigger>
             <TabsTrigger value="dryrun">Dry run</TabsTrigger>
             <TabsTrigger value="golive">Go-live</TabsTrigger>
             <TabsTrigger value="leverage">Leverage &amp; ROE</TabsTrigger>
@@ -667,17 +667,17 @@ export function ReadinessConsole() {
           <TabsContent value="paper">
             <Card className="border-white/10 bg-[#14181f]">
               <CardHeader>
-                <CardTitle>Paper books — ETH, BNB, equity perps</CardTitle>
+                <CardTitle>Decibel paper portfolio — ETH, BNB, equities</CardTitle>
                 <CardDescription>
-                  Same Turtle defaults as live BTC, independent $1000 paper books on public
-                  Hyperliquid 4h candles. Does not place orders. BTC is a reference column only.
-                  Crypto names are correlated; equities (`xyz:` HIP-3) are the diversifier.
+                  Headline metric is portfolio Sharpe on one equal-dollar book (ETH + BNB +
+                  equity perps). BTC is Phoenix live and is excluded. Research candles are public
+                  Hyperliquid; the intended live venue is Decibel (Aptos). Does not place orders.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
                 <div className="flex flex-wrap gap-2">
                   <Button onClick={() => void runPaperLab(1)} disabled={paperRunning}>
-                    {paperRunning ? "Walking books..." : "Run 1y Sharpe"}
+                    {paperRunning ? "Walking portfolio..." : "Run 1y portfolio Sharpe"}
                   </Button>
                 </div>
                 {paperLabError ? (
@@ -689,6 +689,25 @@ export function ReadinessConsole() {
                 {paperLab ? (
                   <>
                     <p className="text-xs text-zinc-500">{paperLab.note}</p>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      {([paperLab.portfolio.all, paperLab.portfolio.crypto, paperLab.portfolio.equity] as const).map(
+                        (sleeve) => (
+                          <div key={sleeve.label} className="rounded-lg border border-white/10 bg-[#0d1117] p-3 space-y-2">
+                            <div className="text-xs uppercase tracking-wide text-zinc-500">{sleeve.label}</div>
+                            <div className={cn("font-mono text-2xl", pnlClass(sleeve.sharpe ?? 0))}>
+                              {sleeve.sharpe === null ? "-" : sleeve.sharpe.toFixed(2)}
+                            </div>
+                            <div className="text-xs text-zinc-400">
+                              Sharpe · CAGR {signed(sleeve.cagrPct)}% · DD {sleeve.maxDrawdownPct.toFixed(1)}%
+                            </div>
+                            <div className="text-[11px] text-zinc-500">
+                              {sleeve.names.join(", ")} · ${sleeve.startEquityUsd.toFixed(0)} → $
+                              {sleeve.finalEquityUsd.toFixed(0)}
+                            </div>
+                          </div>
+                        ),
+                      )}
+                    </div>
                     <div className="overflow-x-auto">
                       <Table>
                         <TableHeader>
@@ -738,7 +757,7 @@ export function ReadinessConsole() {
                   </>
                 ) : (
                   <p className="text-sm text-zinc-400">
-                    Run 1y Sharpe to walk ETH, BNB, and the equity perps. Live BTC is not submitted from this tab.
+                    Run 1y portfolio Sharpe. Headline is the combined Decibel book, not per-name Sharpes.
                   </p>
                 )}
               </CardContent>
