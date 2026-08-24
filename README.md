@@ -1,95 +1,66 @@
-# Smart Grid: Conservative LONG readiness
+# Adaptive Trend Engine
 
-Phase 7.9 production-preparation console for the **Conservative LONG** candidate
-selected on 2026-08-21 HKT. This is a paper observation and disabled production
-boundary. It is **not** live authorization.
+A single-book **BTC trend-following** strategy on the 4h timeframe, with an interactive
+backtest lab, a dry-run order preview, and Telegram alerts. **Paper / dry-run only** —
+there is no exchange write adapter, so nothing can place, cancel, or resize a live order.
 
-GitHub (private): https://github.com/ricolamchihin-afk/smart-grid-conservative-readiness
+## Strategy
 
-## Open in VS Code
+Dynamic directional exposure (long / short / flat), driven by:
 
-The clone can succeed and `code` can still fail. That only means the `code`
-command is not on PATH. Do not paste `copilot-debug` or any text with `<`.
+- **Trend filter:** daily EMA(150) regime gate (longs only above, shorts only below).
+- **Entry:** Donchian breakout (34-bar) with an ADX trend and RSI(50/50) momentum gate.
+- **Sizing:** ATR volatility position sizing — each trade risks a fixed % of equity
+  (default 3%); leverage is a hard cap (20x) that the sizing rarely reaches.
+- **Exit:** fast Donchian trailing stop (5-bar) + initial 3×ATR stop; winners run.
+- **Take-profit:** dynamic, scaled by trend strength — `TP% = 1.0 × ADX` at entry
+  (clamped 10–60%). Stronger trends get a larger target.
 
-1. Open the Start menu.
-2. Type Visual Studio Code and open it. Install it from
-   https://code.visualstudio.com/ if Windows cannot find it.
-3. File: Open Folder: `C:\\Users\\user\\Cursor`.
-4. In the VS Code terminal, run `npm install`, then `npm test`, then
-   `npm run dev`.
+Optional, tunable in the lab: ADX threshold, RSI bounds, MACD-histogram filter,
+EMA-slope filter, fixed take-profit.
 
-Full steps: [VSCODE.md](VSCODE.md).
+## Backtest results (public Hyperliquid 4h candles)
 
-If you still want a fresh clone, run these as two separate lines:
+Default config, validated 1/2/3 years and statistically significant (p<0.05) on 2y/3y:
 
-```powershell
-cd C:\\Users\\user
-```
+| Window | CAGR | Sharpe | Sortino | Max DD |
+| --- | --- | --- | --- | --- |
+| 1Y | ~26% | 1.37 | 2.33 | ~11% |
+| 2Y | ~49% | 2.05 | 3.57 | ~12% |
+| 3Y | ~29% | 1.34 | 2.26 | ~23% |
 
-```powershell
-git clone https://github.com/ricolamchihin-afk/smart-grid-conservative-readiness.git Cursor
-```
-
-The original Classic Grid / Phase 7.8.2 Windows tree is not in this repository.
-This epoch starts from public closed Hyperliquid BTC candles and does not resume
-or overwrite those ledgers.
-
-## What this is
-
-- Frozen Conservative specification: 25% floor to 100% as extension falls, 10x
-  on deployed margin, 20% allocation, 40% liquidation-buffer floor.
-- Three equal-capital paper mandates (USD 4,000 research reference each).
-  Conservative is the only live candidate. Moderate and Aggressive are
-  leverage/exposure benchmarks.
-- Bloomberg-inspired hierarchy: daily/4h direction, continuous extension
-  sizing, 15m pace only, hard halt on conflict/transition/tail/gap.
-- Dry-run intents that are never sent. `live_actions_enabled` is hardcoded
-  false. There is no exchange-write adapter and no credential import.
-- Read-only public market data from Hyperliquid `candleSnapshot`.
-
-## What this is not
-
-- A go-live switch.
-- A continuation of the Phase 7.3.2 paper broker files.
-- An optimizer for TP/SL, grid width, leverage, or indicator thresholds.
+Aggressive profile (risk 8% + dynamic ADX take-profit): ~137–172% CAGR at Sharpe ~2.3
+and ~29% drawdown, with several +20%+ months — higher return for materially higher risk.
+Past backtest performance is not a guarantee of live results.
 
 ## Run locally
 
 ```bash
 npm install
 npm test
-npm run dev
+npm run dev     # console on http://127.0.0.1:43871
 ```
 
-The console listens on [http://127.0.0.1:43871](http://127.0.0.1:43871).
+Endpoints: `/api/snapshot` (live signal + position), `/api/backtest?years=N&...` (tunable
+backtest), `/api/sweep` (parameter sensitivity), `/api/dry-run` (order preview + Telegram),
+`/api/connections` (health), `/api/go-live` (readiness checklist), `/api/health`.
 
-Endpoints:
+## Configuration
 
-| Method | Path | Purpose |
-|---|---|
-| GET | `/` | Readiness console |
-| GET | `/api/snapshot` | Paper state, hierarchy, gates, intents |
-| GET | `/api/health` | Liveness; always reports writes disabled |
-| POST | `/api/venues` | Operator-entered venue labels only |
-| POST | `/api/kill` | Paper flatten only |
-| POST/PUT/PATCH | `/api/health` | 405 |
+Copy `.env.example` to `.env` and edit. `.env` is git-ignored — never commit secrets.
+The strategy parameters, risk limits, exchange/wallet placeholders, and the
+`TELEGRAM_*` alert settings live there. `DRY_RUN=true` and `LIVE_TRADING_ENABLED=false`
+by default.
 
-## Promotion status
+## Going live
 
-**CONSERVATIVE LONG SELECTED / HOLD FOR LIVE CLEARANCE.**
-
-The nine fixed gates from the 2026-08-21 handoff still apply. A short
-correlated LONG sample, a positive inventory mark, or a green smoke test is
-not institutional evidence.
+The console is dry-run only. Real order submission requires a **vetted, testnet-verified
+exchange write adapter** implementing the `Executor` interface, plus a funded wallet and
+the hard risk limits enforced. The **Go-live** tab / `/api/go-live` shows a readiness
+checklist; the final adapter + testnet test is a deliberate, separate step.
 
 ## Safety
 
-Do not enable live writes from this tree. Do not paste API keys into the venue
-form. Do not treat the USD 4,000 research books as approved canary capital.
-
-## Ponytail
-
-Cursor follows [Ponytail](https://github.com/DietrichGebert/ponytail) from
-`.cursor/rules/ponytail.mdc`: write only what the task needs, reuse what is
-already here, and never cut validation, safety, or the frozen Conservative
-controls. The other 19 agent adapters from that repo were not copied.
+- `live_actions_enabled` is false and there is no write adapter — the app cannot trade.
+- Never commit API keys / signing keys; use `.env` (git-ignored) or a secrets manager.
+- Validate any live integration on testnet / minimal size before real funds.

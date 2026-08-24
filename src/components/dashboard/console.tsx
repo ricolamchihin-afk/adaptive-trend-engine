@@ -70,6 +70,14 @@ const DEFAULT_LAB: LabParams = {
   emaSlopeMinPct: 0,
 };
 
+interface GoLiveResponse {
+  ready: boolean;
+  mode: string;
+  executor: string;
+  items: Array<{ id: string; label: string; ok: boolean; detail: string; blocking: boolean }>;
+  blockers: string[];
+}
+
 interface ConnectionsResponse {
   marketData: { ok: boolean; source?: string; mark?: number; error?: string };
   telegram: { enabled: boolean; configured: boolean; chatCount: number; botOk: boolean; botUsername?: string; error?: string };
@@ -189,6 +197,8 @@ export function ReadinessConsole() {
   const [checking, setChecking] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<string | null>(null);
+  const [goLive, setGoLive] = useState<GoLiveResponse | null>(null);
+  const [checkingGoLive, setCheckingGoLive] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -227,6 +237,18 @@ export function ReadinessConsole() {
       window.clearInterval(timer);
     };
   }, []);
+
+  async function checkGoLive() {
+    setCheckingGoLive(true);
+    try {
+      const response = await fetch("/api/go-live", { cache: "no-store" });
+      setGoLive((await response.json()) as GoLiveResponse);
+    } catch {
+      setGoLive(null);
+    } finally {
+      setCheckingGoLive(false);
+    }
+  }
 
   async function checkConnections() {
     setChecking(true);
@@ -477,6 +499,7 @@ export function ReadinessConsole() {
           <TabsList className="bg-[#14181f]">
             <TabsTrigger value="backtest">Backtest lab</TabsTrigger>
             <TabsTrigger value="dryrun">Dry run</TabsTrigger>
+            <TabsTrigger value="golive">Go-live</TabsTrigger>
             <TabsTrigger value="leverage">Leverage &amp; ROE</TabsTrigger>
             <TabsTrigger value="boundary">Production boundary</TabsTrigger>
           </TabsList>
@@ -730,6 +753,61 @@ export function ReadinessConsole() {
                   <p className="text-sm text-zinc-400">
                     Fill in <code>.env</code>, then run the dry run to preview the order the strategy
                     would place — without sending anything.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="golive">
+            <Card className="border-white/10 bg-[#14181f]">
+              <CardHeader>
+                <CardTitle>Go-live readiness</CardTitle>
+                <CardDescription>
+                  Everything needed to trade for real, checked in one place. The engine stays in
+                  dry-run until every blocking item is green — including a testnet-verified exchange
+                  write adapter and a funded wallet, which are deliberate manual gates.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <Button onClick={() => void checkGoLive()} disabled={checkingGoLive}>
+                  {checkingGoLive ? "Checking..." : "Check go-live readiness"}
+                </Button>
+                {goLive ? (
+                  <>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusPill tone={goLive.mode === "live" ? "live" : "warn"}>Mode: {goLive.mode.replaceAll("_", " ")}</StatusPill>
+                      <StatusPill tone={goLive.ready ? "good" : "bad"}>{goLive.ready ? "READY" : `${goLive.blockers.length} blocker(s)`}</StatusPill>
+                      <StatusPill tone="neutral">executor: {goLive.executor}</StatusPill>
+                    </div>
+                    <div className="space-y-2">
+                      {goLive.items.map((item) => (
+                        <div
+                          key={item.id}
+                          className="flex flex-col gap-1 rounded-lg border border-white/10 p-3 sm:flex-row sm:items-start sm:justify-between"
+                        >
+                          <div>
+                            <p className="font-medium text-zinc-100">{item.label}</p>
+                            <p className="mt-0.5 text-xs text-zinc-500">{item.detail}</p>
+                          </div>
+                          <StatusPill tone={item.ok ? "good" : item.blocking ? "bad" : "warn"}>
+                            {item.ok ? "ready" : item.blocking ? "blocking" : "optional"}
+                          </StatusPill>
+                        </div>
+                      ))}
+                    </div>
+                    <Alert className="border-amber-500/30 bg-amber-500/5 text-amber-100">
+                      <AlertTitle>Remaining gate before real orders</AlertTitle>
+                      <AlertDescription className="text-amber-100/80">
+                        A vetted Phoenix write adapter (implementing the Executor interface) must be
+                        built and verified on testnet, and the wallet funded, before live trading can
+                        be enabled. Until then all execution is paper/dry-run.
+                      </AlertDescription>
+                    </Alert>
+                  </>
+                ) : (
+                  <p className="text-sm text-zinc-400">
+                    Run the check to see the readiness checklist and any blocking items.
                   </p>
                 )}
               </CardContent>
