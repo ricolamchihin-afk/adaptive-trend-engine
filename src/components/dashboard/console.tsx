@@ -424,7 +424,13 @@ export function ReadinessConsole() {
           <Metric
             label="Position"
             value={position.side === "FLAT" ? "Flat" : `${position.side} ${Math.abs(position.sizeBtc).toFixed(4)} BTC`}
-            hint={position.side === "FLAT" ? "no exposure" : `${usd(position.notionalUsd, 0)} notional · ${position.leverage.toFixed(1)}x`}
+            hint={
+              position.side === "FLAT"
+                ? position.paperSide && position.paperSide !== "FLAT"
+                  ? `paper book ${position.paperSide}; wait for next 4h breakout`
+                  : "no exposure"
+                : `${usd(position.notionalUsd, 0)} notional · ${position.leverage.toFixed(1)}x`
+            }
             valueClass={position.side === "SHORT" ? "text-amber-300" : position.side === "LONG" ? "text-emerald-400" : undefined}
           />
           <Metric

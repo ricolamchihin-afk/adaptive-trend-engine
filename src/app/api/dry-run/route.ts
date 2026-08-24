@@ -1,7 +1,8 @@
 import { formatDryRunMessage, planDryRun } from "@/lib/engine/dryrun";
 import { getExecutor } from "@/lib/engine/executor";
-import { liveConfig } from "@/lib/engine/liveConfig";
+import { liveConfig, liveEquityUsd } from "@/lib/engine/liveConfig";
 import { sendTelegram, telegramStatus } from "@/lib/engine/notify";
+import { PhoenixPerpExecutor } from "@/lib/engine/phoenixExecutor";
 import { getSnapshot } from "@/lib/engine/runtime";
 import { STRATEGY } from "@/lib/engine/spec";
 
@@ -10,13 +11,22 @@ export const dynamic = "force-dynamic";
 async function buildPlan() {
   const snapshot = await getSnapshot();
   const cfg = liveConfig();
+  const funded = await new PhoenixPerpExecutor().accountState().catch(() => ({ ok: false as const, collateralUsd: undefined }));
+  const equityUsd = liveEquityUsd(cfg.capitalUsd, funded.collateralUsd);
   const plan = planDryRun(
     { side: snapshot.position.side, sizeBtc: snapshot.position.sizeBtc, stopPrice: snapshot.position.stopPrice },
     snapshot.market.mark,
     cfg,
     STRATEGY.capitalUsd,
+    {
+      equityUsd,
+      atr: snapshot.position.atr,
+      atrStopMult: STRATEGY.atrStopMult,
+      freshEntry: snapshot.position.freshEntry,
+      paperSide: snapshot.position.paperSide,
+    },
   );
-  return { snapshot, cfg, plan };
+  return { snapshot, cfg, plan, equityUsd, collateralUsd: funded.collateralUsd };
 }
 
 // POST triggers the dry-run Telegram alert (a notification, never a trade).
@@ -60,7 +70,7 @@ export async function POST() {
 // is submitted — there is no exchange write adapter — and no secret is echoed.
 export async function GET() {
   try {
-    const { snapshot, cfg, plan } = await buildPlan();
+    const { snapshot, cfg, plan, equityUsd, collateralUsd } = await buildPlan();
     const tg = telegramStatus();
     return Response.json({
       telegram: { enabled: tg.enabled, configured: tg.configured, chatCount: tg.chatCount },
@@ -74,6 +84,8 @@ export async function GET() {
       credentialsPresent: cfg.credentialsPresent,
       config: {
         capitalUsd: cfg.capitalUsd,
+        equityUsd,
+        collateralUsd: collateralUsd ?? null,
         maxLeverage: cfg.maxLeverage,
         riskPct: cfg.riskPct,
         maxNotionalUsd: cfg.maxNotionalUsd,

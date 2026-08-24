@@ -24,6 +24,22 @@ export interface SimConfig {
   emaSlopeMinPct: number; // require |daily EMA slope| >= this (0 = off)
 }
 
+// ATR volatility size: risk `riskPct` of equity at `atrStopMult` × ATR, capped by max leverage.
+export function atrSizeBtc(
+  equityUsd: number,
+  price: number,
+  atr: number,
+  riskPct: number,
+  atrStopMult: number,
+  maxLeverage: number,
+): number {
+  if (equityUsd <= 0 || price <= 0 || atr <= 0 || riskPct <= 0 || atrStopMult <= 0) return 0;
+  const stopDist = atrStopMult * atr;
+  const maxSize = (equityUsd * maxLeverage) / price;
+  const sized = (equityUsd * riskPct) / stopDist;
+  return sized > maxSize ? maxSize : sized;
+}
+
 // 4h bars per year, for annualizing the Sharpe ratio.
 const PERIODS_PER_YEAR = 6 * 365;
 
@@ -91,6 +107,8 @@ export interface SimResult {
   finalStop: number | null;
   finalSizeBtc: number;
   finalLeverage: number;
+  // True when the last bar opened a new trade (live should only submit then).
+  finalOpenedThisBar: boolean;
 }
 
 // Turtle-style trend follower: Donchian breakout entries filtered by the daily
@@ -123,6 +141,7 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
   let peakEquity = equity;
   let maxDrawdownPct = 0;
   let lastClose = cfg.capitalUsd;
+  let openedThisBar = false;
   const equityCurve: number[] = [equity];
   const curveTimes: number[] = [features[0]?.candle.openTime ?? 0];
 
@@ -156,9 +175,7 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
       return;
     }
     const stopDist = cfg.atrStopMult * atr;
-    const maxSize = (equity * cfg.maxLeverage) / fill;
-    let sizeBtc = (equity * cfg.riskPct) / stopDist;
-    if (sizeBtc > maxSize) sizeBtc = maxSize;
+    const sizeBtc = atrSizeBtc(equity, fill, atr, cfg.riskPct, cfg.atrStopMult, cfg.maxLeverage);
     if (sizeBtc <= 0) return;
     const fee = sizeBtc * fill * cfg.takerRate;
     delta(-fee, regime);
@@ -173,6 +190,7 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
   for (const f of features) {
     const candle = f.candle;
     lastClose = candle.close;
+    openedThisBar = false;
     currentBarMonth = new Date(candle.openTime).toISOString().slice(0, 7);
     if (blownUp) {
       barsInRegime.FLAT += 1;
@@ -232,9 +250,11 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
     if (posBtc === 0 && !justExited && trendStrong && f.atr !== null && f.atr > 0) {
       if (f.dailyDir > 0 && rsiOkLong && macdOkLong && slopeOkLong && f.entryHigh !== null && candle.high >= f.entryHigh) {
         open(1, Math.max(candle.open, f.entryHigh), f.atr, "LONG");
+        openedThisBar = posBtc !== 0;
         entryAdx = f.adx ?? 0;
       } else if (f.dailyDir < 0 && rsiOkShort && macdOkShort && slopeOkShort && f.entryLow !== null && candle.low <= f.entryLow) {
         open(-1, Math.min(candle.open, f.entryLow), f.atr, "SHORT");
+        openedThisBar = posBtc !== 0;
         entryAdx = f.adx ?? 0;
       }
     }
@@ -370,5 +390,6 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
     finalStop,
     finalSizeBtc,
     finalLeverage,
+    finalOpenedThisBar: openedThisBar,
   };
 }
