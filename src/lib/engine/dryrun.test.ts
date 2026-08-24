@@ -76,6 +76,8 @@ describe("dry-run planner", () => {
   it("caps live equity at Phoenix collateral", () => {
     expect(liveEquityUsd(1000, 999.56)).toBeCloseTo(999.56, 6);
     expect(liveEquityUsd(1000, 2000)).toBe(1000);
+    expect(liveEquityUsd(2000, 999.56)).toBeCloseTo(999.56, 6);
+    expect(liveEquityUsd(2000, 2000)).toBe(2000);
     expect(liveEquityUsd(1000, undefined)).toBe(1000);
     expect(liveEquityUsd(1000, 0)).toBe(1000);
   });

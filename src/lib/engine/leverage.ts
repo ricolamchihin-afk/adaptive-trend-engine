@@ -102,8 +102,7 @@ export function leverageTable(
   };
 }
 
-// Convenience for the console: 1000 USDC at 10x on Phoenix taker fees, anchored
-// to the current mark. Capital and leverage follow VSCODE.md (Phoenix, 1000 USDC).
+// Convenience for the console: STRATEGY capital at max leverage on Phoenix taker fees.
 export function phoenixLeverageTable(entryPrice: number): LeverageTable {
   return leverageTable({
     collateralUsd: STRATEGY.capitalUsd,

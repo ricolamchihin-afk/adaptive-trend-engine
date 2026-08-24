@@ -28,11 +28,11 @@ describe("dynamic directional specification", () => {
     expect(FROZEN_SPEC.retired.join(" ")).toContain("80");
   });
 
-  it("uses Phoenix, 1000 USDC at the 20x leverage cap", () => {
+  it("uses Phoenix, 2000 USDC at the 20x leverage cap", () => {
     expect(STRATEGY.venue).toBe("phoenix");
-    expect(STRATEGY.capitalUsd).toBe(1000);
+    expect(STRATEGY.capitalUsd).toBe(2000);
     expect(STRATEGY.leverage).toBe(20);
-    expect(directionalNotionalUsd(1000)).toBe(20_000);
+    expect(directionalNotionalUsd(2000)).toBe(40_000);
     expect(directionalNotionalUsd(1500)).toBe(30_000);
   });
 
