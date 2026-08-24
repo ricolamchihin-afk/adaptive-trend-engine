@@ -2,6 +2,7 @@ import { goLiveReadiness } from "@/lib/engine/golive";
 import { liveConfig } from "@/lib/engine/liveConfig";
 import { loadMarket } from "@/lib/engine/market-data";
 import { telegramGetMe, telegramStatus } from "@/lib/engine/notify";
+import { PhoenixPerpExecutor } from "@/lib/engine/phoenixExecutor";
 
 export const dynamic = "force-dynamic";
 
@@ -19,5 +20,14 @@ export async function GET() {
   const tg = telegramStatus();
   const telegramOk = tg.configured ? (await telegramGetMe()).ok : false;
 
-  return Response.json(goLiveReadiness(cfg, { marketOk, telegramOk }));
+  const funded = await new PhoenixPerpExecutor().accountState();
+
+  return Response.json(
+    goLiveReadiness(cfg, {
+      marketOk,
+      telegramOk,
+      fundedOk: funded.ok,
+      collateralUsd: funded.collateralUsd,
+    }),
+  );
 }

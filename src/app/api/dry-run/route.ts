@@ -1,4 +1,5 @@
 import { formatDryRunMessage, planDryRun } from "@/lib/engine/dryrun";
+import { getExecutor } from "@/lib/engine/executor";
 import { liveConfig } from "@/lib/engine/liveConfig";
 import { sendTelegram, telegramStatus } from "@/lib/engine/notify";
 import { getSnapshot } from "@/lib/engine/runtime";
@@ -22,9 +23,30 @@ async function buildPlan() {
 export async function POST() {
   try {
     const { snapshot, cfg, plan } = await buildPlan();
-    const message = formatDryRunMessage(plan, cfg.exchange, snapshot.market.mark);
+    const executor = getExecutor(cfg);
+    let execution = { submitted: false, live: false, message: plan.note };
+    if (executor.canTrade && plan.action !== "HOLD") {
+      execution = await executor.submit({
+        action: plan.action,
+        side: plan.side === "SHORT" ? "SHORT" : "LONG",
+        sizeBtc: plan.sizeBtc,
+        notionalUsd: plan.notionalUsd,
+        price: plan.entryPrice,
+      });
+    }
+    const message = formatDryRunMessage(
+      { ...plan, liveSubmitted: execution.submitted, note: execution.message },
+      cfg.exchange,
+      snapshot.market.mark,
+    );
     const telegram = await sendTelegram(message);
-    return Response.json({ mode: "dry_run", plan, telegram, message });
+    return Response.json({
+      mode: executor.canTrade ? "live" : "dry_run",
+      plan: { ...plan, liveSubmitted: execution.submitted, dryRun: !execution.submitted, note: execution.message },
+      execution,
+      telegram,
+      message,
+    });
   } catch (error) {
     return Response.json(
       { error: error instanceof Error ? error.message : "dry_run_failed" },
@@ -43,9 +65,9 @@ export async function GET() {
     return Response.json({
       telegram: { enabled: tg.enabled, configured: tg.configured, chatCount: tg.chatCount },
       generatedAt: new Date().toISOString(),
-      mode: "dry_run",
-      liveExecutionAvailable: false,
-      writeAdapter: null,
+      mode: getExecutor(cfg).canTrade ? "live" : "dry_run",
+      liveExecutionAvailable: getExecutor(cfg).canTrade,
+      writeAdapter: getExecutor(cfg).name,
       liveTradingEnabled: cfg.liveTradingEnabled,
       exchange: cfg.exchange,
       accountLabel: cfg.accountLabel,
@@ -61,7 +83,9 @@ export async function GET() {
       market: { mark: snapshot.market.mark, source: snapshot.market.source },
       plan,
       note:
-        "Preview only. No order is sent. Enabling live trading additionally requires a vetted exchange write adapter, which does not exist in this repository.",
+        getExecutor(cfg).canTrade
+          ? "Live execution is armed. POST /api/dry-run submits the current long/short plan as a Phoenix market order."
+          : "Preview only. No order is sent until LIVE_TRADING_ENABLED and PHOENIX_ADAPTER_VERIFIED are both true.",
     });
   } catch (error) {
     return Response.json(

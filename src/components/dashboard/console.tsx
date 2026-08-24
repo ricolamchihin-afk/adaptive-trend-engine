@@ -764,9 +764,8 @@ export function ReadinessConsole() {
               <CardHeader>
                 <CardTitle>Go-live readiness</CardTitle>
                 <CardDescription>
-                  Everything needed to trade for real, checked in one place. The engine stays in
-                  dry-run until every blocking item is green — including a testnet-verified exchange
-                  write adapter and a funded wallet, which are deliberate manual gates.
+                  Dynamic long/short trend follower. When every blocking item is green and live is
+                  armed, POST of the dry-run plan submits a Phoenix market order.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
@@ -797,11 +796,11 @@ export function ReadinessConsole() {
                       ))}
                     </div>
                     <Alert className="border-amber-500/30 bg-amber-500/5 text-amber-100">
-                      <AlertTitle>Remaining gate before real orders</AlertTitle>
+                      <AlertTitle>{goLive.ready ? "Live is armed" : "Remaining blockers"}</AlertTitle>
                       <AlertDescription className="text-amber-100/80">
-                        A vetted Phoenix write adapter (implementing the Executor interface) must be
-                        built and verified on testnet, and the wallet funded, before live trading can
-                        be enabled. Until then all execution is paper/dry-run.
+                        {goLive.ready
+                          ? "The current long/short plan can be submitted as a Phoenix market order. Past backtest Sharpe is not a guarantee of live results."
+                          : "Fix the blocking items below. Live orders stay off until the checklist is green."}
                       </AlertDescription>
                     </Alert>
                   </>

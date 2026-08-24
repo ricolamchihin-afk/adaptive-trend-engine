@@ -39,8 +39,12 @@ export async function GET() {
       apiUrlSet: Boolean(process.env.PHOENIX_API_URL),
       apiKeyPresent: Boolean(process.env.EXCHANGE_API_KEY),
       signerPresent,
-      writeAdapter: null,
-      tradingConnection: "unavailable — dry-run only; no write adapter is built",
+      writeAdapter: process.env.PHOENIX_API_URL ? "phoenix-perp" : null,
+      tradingConnection:
+        (process.env.LIVE_TRADING_ENABLED ?? "").toLowerCase() === "true" &&
+        (process.env.PHOENIX_ADAPTER_VERIFIED ?? "").toLowerCase() === "true"
+          ? "live — Phoenix submit path armed"
+          : "dry-run — live flags off",
     },
   });
 }

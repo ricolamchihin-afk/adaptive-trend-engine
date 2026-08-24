@@ -22,7 +22,7 @@ export interface GoLiveReadiness {
 // must not be faked: a testnet-verified write adapter, and a funded wallet.
 export function goLiveReadiness(
   cfg: LiveConfig,
-  ctx: { marketOk: boolean; telegramOk: boolean },
+  ctx: { marketOk: boolean; telegramOk: boolean; fundedOk?: boolean; collateralUsd?: number },
 ): GoLiveReadiness {
   const executor = getExecutor(cfg);
   const phoenix = phoenixEnv();
@@ -100,8 +100,10 @@ export function goLiveReadiness(
     {
       id: "funded",
       label: "Wallet funded (collateral on Phoenix)",
-      ok: false,
-      detail: "Verify collateral via the Phoenix adapter's account read before enabling; keep unfunded until testnet passes.",
+      ok: Boolean(ctx.fundedOk),
+      detail: ctx.fundedOk
+        ? `Collateral $${(ctx.collateralUsd ?? 0).toFixed(2)} on Phoenix.`
+        : "Verify collateral via the Phoenix adapter's account read before enabling.",
       blocking: true,
     },
     {
@@ -109,7 +111,7 @@ export function goLiveReadiness(
       label: "LIVE_TRADING_ENABLED",
       ok: cfg.liveTradingEnabled,
       detail: cfg.liveTradingEnabled ? "Live flag ON." : "Live flag off (safe default).",
-      blocking: false,
+      blocking: true,
     },
   ];
 
