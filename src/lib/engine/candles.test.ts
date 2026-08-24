@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   DAY_MS,
   FIFTEEN_MS,
+  FOUR_HOUR_MS,
   MINUTE_MS,
   availableAt,
   closedOnly,
+  fillIntervalGaps,
   isUsable,
   makeCandle,
+  parseBinanceKlines,
   parseHyperliquidCandles,
   pathPrices,
   validateSeries,
@@ -91,5 +94,19 @@ describe("closed-candle availability", () => {
         MINUTE_MS,
       ),
     ).toThrow(/corrupt_candle/);
+  });
+
+  it("parses Binance Vision klines and fills a 4h hole", () => {
+    const rows = [
+      [1_000, "10", "11", "9", "10.5", "1", 1_000 + FOUR_HOUR_MS - 1, "0", 2],
+      [1_000 + 2 * FOUR_HOUR_MS, "10.5", "12", "10", "11", "1", 1_000 + 3 * FOUR_HOUR_MS - 1, "0", 2],
+    ];
+    const parsed = parseBinanceKlines(rows, FOUR_HOUR_MS);
+    expect(parsed).toHaveLength(2);
+    const filled = fillIntervalGaps(parsed, FOUR_HOUR_MS);
+    expect(filled).toHaveLength(3);
+    expect(filled[1].openTime).toBe(1_000 + FOUR_HOUR_MS);
+    expect(filled[1].open).toBe(10.5);
+    expect(filled[1].close).toBe(10.5);
   });
 });

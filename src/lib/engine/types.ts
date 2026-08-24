@@ -1,5 +1,8 @@
 export type PathMode = "low_first" | "high_first";
-export type MarketSource = "hyperliquid_public" | "offline_synthetic_fallback";
+export type MarketSource =
+  | "hyperliquid_public"
+  | "binance_spot_public"
+  | "offline_synthetic_fallback";
 export type VenueId = "phoenix";
 
 // Dynamic directional exposure. The strategy is one of these at any decision:

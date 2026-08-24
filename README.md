@@ -18,6 +18,10 @@ Dynamic directional exposure (long / short / flat), driven by:
 Optional, tunable in the lab: ADX threshold, RSI bounds, MACD-histogram filter,
 EMA-slope filter, fixed take-profit.
 
+Research-only longer tape: `GET /api/research` (or console tab **Research holdout**)
+runs the **frozen** live mix on Binance Vision BTCUSDT **spot** 4h since 2017. That
+path does not size or submit Phoenix orders. Spot has no funding.
+
 ## Backtest results (public Hyperliquid 4h candles)
 
 Live mix (Donchian 55/7, risk 10%, ATR 2×, TP×ADX 1.2, RSI 50/50), ~2.28y to 2026-08-24:
