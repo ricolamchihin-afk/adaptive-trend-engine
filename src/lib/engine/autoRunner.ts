@@ -121,6 +121,17 @@ export function autoLoopStatus(): AutoLoopStatus {
   };
 }
 
+export function logAutoStatus(prefix = "[auto]"): void {
+  const s = autoLoopStatus();
+  const tick = s.lastTick;
+  const eq = s.equityUsd != null ? `$${Math.round(s.equityUsd)}` : "n/a";
+  const extra = tick ? `${tick.action} submitted=${tick.submitted} — ${tick.reason}` : "no tick yet";
+  console.log(
+    `${prefix} live=${s.canTrade} auto=${s.autoEnabled} compound=${s.compound} killed=${s.killed} equity=${eq} | ${extra}`,
+  );
+  if (tick?.message && tick.message !== tick.reason) console.log(`${prefix} ${tick.message}`);
+}
+
 function formatAutoTelegram(action: string, reason: string, mark: number, submitted: boolean, message: string): string {
   return [
     "[AUTO 4h] Adaptive Trend Engine",
@@ -324,6 +335,7 @@ export async function tickAutoLoop(): Promise<AutoLoopStatus> {
         ),
       );
     }
+    logAutoStatus();
     return autoLoopStatus();
   } catch (error) {
     const message = error instanceof Error ? error.message : "tick_failed";
@@ -336,6 +348,7 @@ export async function tickAutoLoop(): Promise<AutoLoopStatus> {
     };
     await savePersist().catch(() => undefined);
     await sendTelegram(`[AUTO 4h] Tick failed: ${message}`).catch(() => undefined);
+    logAutoStatus();
     return autoLoopStatus();
   } finally {
     b.ticking = false;
@@ -363,6 +376,16 @@ export function startAutoLoop(): void {
   if (b.started) return;
   b.started = true;
   void loadPersist().then(() => {
+    const s = autoLoopStatus();
+    if (s.canTrade) {
+      console.log("[boot] LIVE SUBMIT ON — flatten/open will hit Phoenix. Keep this window open. Do not also run npm run dev.");
+    } else {
+      console.log(
+        "[boot] Live submit OFF — watching only, no Phoenix orders. Arm with LIVE_TRADING_ENABLED=true and PHOENIX_ADAPTER_VERIFIED=true plus API URL, RPC, and key in .env.local.",
+      );
+    }
+    console.log("[auto] first tick in 8s, then every 60s.");
+    logAutoStatus();
     setTimeout(() => void tickAutoLoop(), 8_000);
     setInterval(() => void tickAutoLoop(), TICK_MS);
   });
