@@ -461,7 +461,11 @@ export function ReadinessConsole() {
         ) : null}
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Metric label="BTC mark" value={market.mark ? usd(market.mark, 0) : "-"} hint={market.lastClosed ?? "no closed bar"} />
+          <Metric
+            label="BTC mark"
+            value={market.mark ? usd(market.mark, 0) : "-"}
+            hint={market.lastClosed ? `live mid · last 4h bar ${market.lastClosed}` : "live mid"}
+          />
           <Metric
             label="Position"
             value={position.side === "FLAT" ? "Flat" : `${position.side} ${Math.abs(position.sizeBtc).toFixed(4)} BTC`}

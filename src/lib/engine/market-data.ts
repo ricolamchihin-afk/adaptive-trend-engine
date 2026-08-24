@@ -53,21 +53,29 @@ async function fetchCandles(
   return closedOnly(parsed, now);
 }
 
-function btcFundingRate(payload: unknown): number | null {
-  if (!Array.isArray(payload) || payload.length < 2) {
-    return null;
-  }
+function btcCtxField(payload: unknown, key: "funding" | "markPx" | "midPx" | "oraclePx"): number | null {
+  if (!Array.isArray(payload) || payload.length < 2) return null;
   const universe = (payload[0] as { universe?: Array<{ name: string }> })?.universe;
-  const ctxs = payload[1] as Array<{ funding?: string }> | undefined;
-  if (!universe || !ctxs) {
-    return null;
-  }
+  const ctxs = payload[1] as Array<Record<string, string | undefined>> | undefined;
+  if (!universe || !ctxs) return null;
   const index = universe.findIndex((asset) => asset.name === "BTC");
-  if (index < 0 || !ctxs[index]?.funding) {
-    return null;
-  }
-  const rate = Number(ctxs[index].funding);
-  return Number.isFinite(rate) ? rate : null;
+  if (index < 0) return null;
+  const n = Number(ctxs[index]?.[key]);
+  return Number.isFinite(n) ? n : null;
+}
+
+function btcFundingRate(payload: unknown): number | null {
+  return btcCtxField(payload, "funding");
+}
+
+// Live BTC mark from the same metaAndAssetCtxs payload already fetched for funding.
+export function btcMarkFromAssetCtx(payload: unknown): number | null {
+  return btcCtxField(payload, "markPx") ?? btcCtxField(payload, "midPx") ?? btcCtxField(payload, "oraclePx");
+}
+
+async function liveBtcMark(): Promise<number | null> {
+  const ctx = await postInfo({ type: "metaAndAssetCtxs" }).catch(() => null);
+  return btcMarkFromAssetCtx(ctx);
 }
 
 export function syntheticSeries(now: number): MarketSeries {
@@ -231,7 +239,10 @@ export async function loadYearMarket(
   days = 365,
 ): Promise<MarketSnapshot> {
   const hit = yearCache.__hlYearMarket;
-  if (hit && hit.days === days && now - hit.at < 45_000) return hit.snap;
+  if (hit && hit.days === days && now - hit.at < 45_000) {
+    const live = await liveBtcMark();
+    return { ...hit.snap, mark: live ?? hit.snap.mark, fetchedAt: now };
+  }
   try {
     const [daily, fourHour, assetCtx] = await Promise.all([
       fetchCandles("1d", DAY_MS, (days + 90) * DAY_MS, now),
@@ -252,7 +263,7 @@ export async function loadYearMarket(
       source: "hyperliquid_public",
       fetchedAt: now,
       lastClosed1m: lastClosed,
-      mark: lastClosed?.close ?? null,
+      mark: btcMarkFromAssetCtx(assetCtx) ?? lastClosed?.close ?? null,
       warning: null,
     };
     yearCache.__hlYearMarket = { at: now, days, snap };
