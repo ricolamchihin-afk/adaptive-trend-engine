@@ -43,6 +43,16 @@ export function phoenixHasSigner(): boolean {
   return Boolean(e.privateKey || e.keypairPath);
 }
 
+// Rise trader-state snapshot stores collateral as quote lots (1e6 = $1), not collateralUsd.
+export function collateralUsdFromTraderSnapshot(snap: {
+  snapshot?: { collateralUsd?: number; subaccounts?: Array<{ collateral?: string }> };
+}): number | undefined {
+  if (typeof snap?.snapshot?.collateralUsd === "number") return snap.snapshot.collateralUsd;
+  const lots = Number(snap?.snapshot?.subaccounts?.[0]?.collateral);
+  if (!Number.isFinite(lots)) return undefined;
+  return lots / 1_000_000; // ponytail: Rise QUOTE_LOTS_PER_USD is 1e6; use getTrader().collateralBalance if that view is populated
+}
+
 function decodeSecret(raw: string, bytesFromBase58: (s: string) => Uint8Array): Uint8Array | null {
   const trimmed = raw.trim();
   try {
@@ -117,8 +127,8 @@ export class PhoenixPerpExecutor implements Executor {
       await client.exchange.ready();
       const snap = (await client.api.traders().getTraderStateSnapshot(pubkey, {
         traderPdaIndex: e.traderPdaIndex,
-      })) as { snapshot?: { collateralUsd?: number } };
-      const collateralUsd = snap?.snapshot?.collateralUsd;
+      })) as { snapshot?: { collateralUsd?: number; subaccounts?: Array<{ collateral?: string }> } };
+      const collateralUsd = collateralUsdFromTraderSnapshot(snap);
       return {
         ok: typeof collateralUsd === "number" && collateralUsd > 0,
         collateralUsd,
