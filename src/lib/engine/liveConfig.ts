@@ -45,3 +45,11 @@ export function liveConfig(): LiveConfig {
     credentialsPresent: Boolean(process.env.EXCHANGE_API_KEY && process.env.EXCHANGE_API_SECRET),
   };
 }
+
+// Live stake: configured capital, never more than real Phoenix collateral when known.
+export function liveEquityUsd(capitalUsd: number, collateralUsd?: number): number {
+  if (typeof collateralUsd === "number" && Number.isFinite(collateralUsd) && collateralUsd > 0) {
+    return Math.min(capitalUsd, collateralUsd);
+  }
+  return capitalUsd;
+}

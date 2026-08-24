@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FOUR_HOUR_MS, makeCandle } from "./candles";
-import { defaultSimConfig, runSimulation } from "./simulate";
+import { atrSizeBtc, defaultSimConfig, runSimulation } from "./simulate";
 import type { Feature } from "./strategy";
 
 const cfg = defaultSimConfig();
@@ -106,5 +106,30 @@ describe("turtle trend simulator", () => {
     // +~1% price move; at the 10x cap that is ~+10% ROE, not +100%+ if uncapped.
     expect(r.totalReturnPct).toBeLessThan(20);
     expect(r.blownUp).toBe(false);
+  });
+
+  it("sizes from equity × risk / (ATR × stop), then the leverage cap", () => {
+    expect(atrSizeBtc(1000, 70_000, 1_000, 0.1, 2, 20)).toBeCloseTo(0.05, 8);
+    expect(atrSizeBtc(1_900, 70_000, 1_000, 0.1, 2, 20)).toBeCloseTo(0.095, 8);
+    // Tiny ATR would request huge size; 20x cap wins.
+    expect(atrSizeBtc(1000, 100, 0.1, 0.1, 2, 20)).toBeCloseTo(200, 8);
+    expect(atrSizeBtc(0, 70_000, 1_000, 0.1, 2, 20)).toBe(0);
+  });
+
+  it("marks a new entry only on the breakout bar", () => {
+    const hold = feat(100_000, 100_200, 99_800, 100_100, { entryHigh: 200_000, exitLow: 90_000, dailyDir: 1 });
+    const brk = feat(100_100, 101_000, 100_000, 100_800, { entryHigh: 99_000, exitLow: 90_000, dailyDir: 1 });
+    const opened = runSimulation([hold, brk], cfg);
+    expect(opened.finalSide).toBe("LONG");
+    expect(opened.finalOpenedThisBar).toBe(true);
+    const held = runSimulation(
+      [
+        brk,
+        feat(100_800, 101_200, 100_600, 101_000, { entryHigh: 200_000, exitLow: 90_000, dailyDir: 1 }),
+      ],
+      cfg,
+    );
+    expect(held.finalSide).toBe("LONG");
+    expect(held.finalOpenedThisBar).toBe(false);
   });
 });

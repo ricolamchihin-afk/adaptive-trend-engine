@@ -4,10 +4,11 @@ import {
   phoenixMakerRoundTripRoePct,
 } from "./leverage";
 import { loadYearMarket } from "./market-data";
+import { liveConfig } from "./liveConfig";
 import { productionBoundary } from "./production";
 import { EPOCH_ID, EPOCH_TITLE, SPEC_HASH, STRATEGY } from "./spec";
 import { buildFeatures } from "./strategy";
-import { defaultSimConfig, runSimulation } from "./simulate";
+import { atrSizeBtc, defaultSimConfig, runSimulation } from "./simulate";
 import type { RegimeReading } from "./types";
 
 const globalForRuntime = globalThis as typeof globalThis & {
@@ -32,9 +33,21 @@ export async function getSnapshot() {
   const killed = paperKilled();
   const mark = market.mark ?? 0;
 
-  const side = killed ? "FLAT" : sim.finalSide;
-  const sizeBtc = side === "FLAT" ? 0 : sim.finalSizeBtc;
+  const cfg = liveConfig();
+  const paperSide = killed ? "FLAT" : sim.finalSide;
+  const freshEntry = !killed && sim.finalOpenedThisBar && paperSide !== "FLAT";
+  const side = freshEntry ? paperSide : "FLAT";
+  const atr = last?.atr ?? 0;
+  const sizeAbs =
+    side === "FLAT"
+      ? 0
+      : atrSizeBtc(cfg.capitalUsd, mark, atr, cfg.riskPct, STRATEGY.atrStopMult, cfg.maxLeverage);
+  const sizeBtc = side === "SHORT" ? -sizeAbs : sizeAbs;
   const notionalUsd = Math.abs(sizeBtc) * mark;
+  const stopDist = STRATEGY.atrStopMult * atr;
+  const stopPrice =
+    side === "LONG" && stopDist > 0 ? mark - stopDist : side === "SHORT" && stopDist > 0 ? mark + stopDist : null;
+  const leverage = cfg.capitalUsd > 0 ? notionalUsd / cfg.capitalUsd : 0;
   const liquidationDistancePct = USABLE_EQUITY_FRACTION / STRATEGY.maxLeverage;
 
   const readings: RegimeReading[] = [
@@ -94,17 +107,19 @@ export async function getSnapshot() {
       warning: market.warning,
     },
     regime: {
-      side,
+      side: paperSide,
       dailyDir: last?.dailyDir ?? 0,
       readings,
     },
     position: {
       side,
+      paperSide,
+      freshEntry,
       sizeBtc,
       notionalUsd,
-      entry: killed ? null : sim.finalEntry,
-      stopPrice: killed ? null : sim.finalStop,
-      leverage: killed ? 0 : sim.finalLeverage,
+      entry: side === "FLAT" ? null : mark,
+      stopPrice: killed ? null : stopPrice,
+      leverage: killed ? 0 : leverage,
       liquidationPrice:
         side === "LONG"
           ? mark * (1 - liquidationDistancePct)
@@ -112,6 +127,7 @@ export async function getSnapshot() {
             ? mark * (1 + liquidationDistancePct)
             : null,
       liquidationDistancePct,
+      atr,
     },
     recent: {
       windowDays: features.length ? (last.candle.openTime - features[0].candle.openTime) / 86_400_000 : 0,
