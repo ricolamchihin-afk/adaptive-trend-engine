@@ -714,6 +714,7 @@ export function ReadinessConsole() {
                                 {row.book.sleeve}
                                 {row.book.role === "reference" ? " · ref" : ""}
                                 {row.shortHistory ? " · short hist" : ""}
+                                {row.warmupBlocked ? " · EMA warmup" : ""}
                               </TableCell>
                               <TableCell className={cn("text-right font-mono text-xs", pnlClass(row.sharpe ?? 0))}>
                                 {row.ok && row.sharpe !== null ? row.sharpe.toFixed(2) : row.error ?? "-"}

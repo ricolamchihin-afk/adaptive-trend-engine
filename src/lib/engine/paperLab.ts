@@ -1,6 +1,7 @@
 import { runBacktest, type BacktestReport } from "./backtest";
 import { loadYearMarket } from "./market-data";
 import { PAPER_BOOKS, type PaperBook } from "./paperBooks";
+import { STRATEGY } from "./spec";
 
 export interface PaperBookReport {
   book: PaperBook;
@@ -21,6 +22,7 @@ export interface PaperBookReport {
   marketSource: string;
   epochStart?: string;
   epochEnd?: string;
+  warmupBlocked: boolean;
 }
 
 export interface PaperLabReport {
@@ -31,10 +33,11 @@ export interface PaperLabReport {
   note: string;
 }
 
-function summarize(book: PaperBook, report: BacktestReport): PaperBookReport {
+function summarize(book: PaperBook, report: BacktestReport, dailyBars: number): PaperBookReport {
   return {
     book,
     ok: report.marketSource === "hyperliquid_public" && !report.blownUp,
+    warmupBlocked: dailyBars < STRATEGY.dailyEmaPeriod,
     durationDays: report.durationDays,
     shortHistory: report.durationDays < 180,
     bars: report.bars,
@@ -60,12 +63,13 @@ export async function runPaperLab(years = 1): Promise<PaperLabReport> {
     try {
       const market = await loadYearMarket(Date.now(), days, book.coin);
       const report = runBacktest(market.series, market.source, years);
-      books.push(summarize(book, report));
+      books.push(summarize(book, report, market.series.daily.length));
     } catch (error) {
       books.push({
         book,
         ok: false,
         error: error instanceof Error ? error.message : "paper_book_failed",
+        warmupBlocked: false,
         durationDays: 0,
         shortHistory: true,
         bars: 0,
