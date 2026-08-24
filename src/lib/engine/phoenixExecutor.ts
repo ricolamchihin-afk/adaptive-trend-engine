@@ -2,8 +2,8 @@ import type { Executor, ExecutionResult, OrderIntent } from "./executor";
 
 // Phoenix Perpetuals adapter (Ellipsis Labs Rise SDK). Read paths (exchange metadata,
 // collateral/funded check) are safe. Order submission is GATED: it builds the real
-// order instruction but only signs+sends when the adapter has been explicitly marked
-// testnet-verified (PHOENIX_ADAPTER_VERIFIED=true) AND live trading is enabled.
+// order instruction but only signs+sends when the adapter is testnet-verified
+// (PHOENIX_ADAPTER_VERIFIED=true) AND live trading is enabled.
 //
 // The SDK is loaded dynamically so it never enters the client bundle, and every call
 // is defensive: the app must keep working (dry-run) even if a field or key is missing.
@@ -11,46 +11,79 @@ import type { Executor, ExecutionResult, OrderIntent } from "./executor";
 export interface PhoenixEnv {
   apiUrl: string;
   rpcUrl: string;
-  authority: string;
+  privateKey: string; // signer secret (base58 or JSON byte array)
+  keypairPath: string; // alternative: path to a Solana keypair JSON file
+  authorityPubkey: string; // trader authority public key (optional; else derived from signer)
   marketSymbol: string;
   traderPdaIndex: number;
   verified: boolean;
 }
 
+// Reads Phoenix config, accepting the common variable-name variants.
 export function phoenixEnv(): PhoenixEnv {
   return {
     apiUrl: process.env.PHOENIX_API_URL ?? "",
-    rpcUrl: process.env.SOLANA_RPC_URL ?? "",
-    authority: process.env.PHOENIX_AUTHORITY ?? "",
+    rpcUrl: process.env.PHOENIX_SOLANA_RPC ?? process.env.SOLANA_RPC_URL ?? "",
+    privateKey: process.env.PHOENIX_PRIVATE_KEY ?? "",
+    keypairPath: process.env.PHOENIX_KEYPAIR_PATH ?? "",
+    authorityPubkey: process.env.PHOENIX_AUTHORITY ?? "",
     marketSymbol: process.env.PHOENIX_MARKET_SYMBOL ?? "BTC",
     traderPdaIndex: Number(process.env.PHOENIX_TRADER_INDEX ?? 0) || 0,
     verified: (process.env.PHOENIX_ADAPTER_VERIFIED ?? "").toLowerCase() === "true",
   };
 }
 
-// Parses PHOENIX_AUTHORITY into a Solana Keypair (signer) if it is a secret key
-// (JSON byte array or base58), else returns just the public key string.
-async function loadSigner(
-  web3: typeof import("@solana/web3.js"),
-  secret: string,
-): Promise<{ keypair: import("@solana/web3.js").Keypair | null; pubkey: string }> {
-  const trimmed = secret.trim();
+export function phoenixConfigured(): boolean {
+  const e = phoenixEnv();
+  return Boolean(e.apiUrl && (e.privateKey || e.keypairPath || e.authorityPubkey));
+}
+
+export function phoenixHasSigner(): boolean {
+  const e = phoenixEnv();
+  return Boolean(e.privateKey || e.keypairPath);
+}
+
+function decodeSecret(raw: string, bytesFromBase58: (s: string) => Uint8Array): Uint8Array | null {
+  const trimmed = raw.trim();
   try {
     if (trimmed.startsWith("[")) {
-      const bytes = Uint8Array.from(JSON.parse(trimmed) as number[]);
-      const kp = web3.Keypair.fromSecretKey(bytes);
-      return { keypair: kp, pubkey: kp.publicKey.toBase58() };
+      return Uint8Array.from(JSON.parse(trimmed) as number[]);
     }
-    const bs58 = (await import("bs58")).default;
-    const bytes = bs58.decode(trimmed);
-    if (bytes.length === 64) {
-      const kp = web3.Keypair.fromSecretKey(bytes);
-      return { keypair: kp, pubkey: kp.publicKey.toBase58() };
-    }
+    const bytes = bytesFromBase58(trimmed);
+    return bytes.length === 64 ? bytes : null;
   } catch {
-    // fall through: treat the value as a public key
+    return null;
   }
-  return { keypair: null, pubkey: trimmed };
+}
+
+// Resolves the signer keypair (from PHOENIX_PRIVATE_KEY or PHOENIX_KEYPAIR_PATH) and
+// the authority public key. Never logs the secret.
+async function resolveSigner(
+  web3: typeof import("@solana/web3.js"),
+): Promise<{ keypair: import("@solana/web3.js").Keypair | null; pubkey: string }> {
+  const e = phoenixEnv();
+  const bs58 = (await import("bs58")).default;
+
+  let secret = e.privateKey;
+  if (!secret && e.keypairPath) {
+    try {
+      const fs = await import("node:fs/promises");
+      secret = await fs.readFile(e.keypairPath, "utf8");
+    } catch {
+      secret = "";
+    }
+  }
+
+  let keypair: import("@solana/web3.js").Keypair | null = null;
+  if (secret) {
+    const bytes = decodeSecret(secret, (s) => bs58.decode(s));
+    if (bytes) {
+      keypair = web3.Keypair.fromSecretKey(bytes);
+    }
+  }
+
+  const pubkey = e.authorityPubkey || (keypair ? keypair.publicKey.toBase58() : "");
+  return { keypair, pubkey };
 }
 
 export class PhoenixPerpExecutor implements Executor {
@@ -58,21 +91,28 @@ export class PhoenixPerpExecutor implements Executor {
 
   get canTrade(): boolean {
     const e = phoenixEnv();
-    return Boolean(e.verified && e.apiUrl && e.rpcUrl && e.authority);
+    const liveOn = (process.env.LIVE_TRADING_ENABLED ?? "").toLowerCase() === "true";
+    return Boolean(liveOn && e.verified && e.apiUrl && e.rpcUrl && phoenixHasSigner());
   }
 
   // Read-only: collateral / open position for the funded check. Never trades.
   async accountState(): Promise<{ ok: boolean; collateralUsd?: number; detail: string }> {
     const e = phoenixEnv();
-    if (!e.apiUrl || !e.rpcUrl || !e.authority) {
-      return { ok: false, detail: "PHOENIX_API_URL, SOLANA_RPC_URL and PHOENIX_AUTHORITY must be set." };
+    if (!e.apiUrl || !e.rpcUrl) {
+      return { ok: false, detail: "Set PHOENIX_API_URL and PHOENIX_SOLANA_RPC." };
     }
     try {
       const rise = (await import("@ellipsis-labs/rise")) as unknown as {
-        createPhoenixClient: (o: unknown) => { exchange: { ready: () => Promise<unknown> }; api: { traders: () => { getTraderStateSnapshot: (a: string, o: unknown) => Promise<unknown> } } };
+        createPhoenixClient: (o: unknown) => {
+          exchange: { ready: () => Promise<unknown> };
+          api: { traders: () => { getTraderStateSnapshot: (a: string, o: unknown) => Promise<unknown> } };
+        };
       };
       const web3 = await import("@solana/web3.js");
-      const { pubkey } = await loadSigner(web3, e.authority);
+      const { pubkey } = await resolveSigner(web3);
+      if (!pubkey) {
+        return { ok: false, detail: "No signer or authority public key available." };
+      }
       const client = rise.createPhoenixClient({ apiUrl: e.apiUrl, rpcUrl: e.rpcUrl });
       await client.exchange.ready();
       const snap = (await client.api.traders().getTraderStateSnapshot(pubkey, {
@@ -105,7 +145,10 @@ export class PhoenixPerpExecutor implements Executor {
         };
       };
       const web3 = await import("@solana/web3.js");
-      const { keypair, pubkey } = await loadSigner(web3, e.authority);
+      const { keypair, pubkey } = await resolveSigner(web3);
+      if (!pubkey) {
+        return { submitted: false, live: false, message: "No signer/authority available." };
+      }
       const client = rise.createPhoenixClient({ apiUrl: e.apiUrl, rpcUrl: e.rpcUrl });
       await client.exchange.ready();
       const orderPacket = await client.orderPackets.buildMarketOrderPacket({
@@ -122,16 +165,16 @@ export class PhoenixPerpExecutor implements Executor {
       });
       built = true;
 
-      // Hard safety gate: only sign + send once the adapter is testnet-verified.
+      // Hard safety gate: only sign + send once the adapter is testnet-verified & live.
       if (!this.canTrade) {
         return {
           submitted: false,
           live: false,
-          message: `Built real Phoenix ${intent.side} order for ${Math.abs(intent.sizeBtc)} ${e.marketSymbol} — NOT sent (adapter not testnet-verified).`,
+          message: `Built real Phoenix ${intent.side} order for ${Math.abs(intent.sizeBtc)} ${e.marketSymbol} — NOT sent (adapter not verified / live off).`,
         };
       }
       if (!keypair) {
-        return { submitted: false, live: false, message: "PHOENIX_AUTHORITY is not a signing key; cannot sign." };
+        return { submitted: false, live: false, message: "PHOENIX_PRIVATE_KEY/KEYPAIR_PATH did not resolve to a signing key." };
       }
       const connection = new web3.Connection(e.rpcUrl, "confirmed");
       const tx = new web3.Transaction().add(ix as import("@solana/web3.js").TransactionInstruction);

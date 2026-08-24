@@ -1,6 +1,6 @@
 import { getExecutor } from "./executor";
 import type { LiveConfig } from "./liveConfig";
-import { phoenixEnv } from "./phoenixExecutor";
+import { phoenixEnv, phoenixHasSigner } from "./phoenixExecutor";
 
 export interface ReadinessItem {
   id: string;
@@ -26,7 +26,7 @@ export function goLiveReadiness(
 ): GoLiveReadiness {
   const executor = getExecutor(cfg);
   const phoenix = phoenixEnv();
-  const signerPresent = cfg.credentialsPresent || Boolean(process.env.PHOENIX_AUTHORITY);
+  const signerPresent = phoenixHasSigner() || Boolean(process.env.PHOENIX_AUTHORITY);
 
   const items: ReadinessItem[] = [
     {
@@ -93,8 +93,8 @@ export function goLiveReadiness(
     {
       id: "rpc",
       label: "Solana RPC endpoint configured",
-      ok: Boolean(process.env.SOLANA_RPC_URL),
-      detail: process.env.SOLANA_RPC_URL ? "SOLANA_RPC_URL set." : "Set SOLANA_RPC_URL for order submission.",
+      ok: Boolean(phoenix.rpcUrl),
+      detail: phoenix.rpcUrl ? "Solana RPC set." : "Set PHOENIX_SOLANA_RPC (or SOLANA_RPC_URL).",
       blocking: true,
     },
     {
