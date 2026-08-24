@@ -150,6 +150,59 @@ export function parseHyperliquidCandles(
   return candles;
 }
 
+// Binance / Vision kline row:
+// [openTime, open, high, low, close, volume, closeTime, ..., trades]
+export function parseBinanceKlines(raw: unknown, intervalMs: number): Candle[] {
+  if (!Array.isArray(raw)) {
+    throw new Error("binance_kline_payload_not_array");
+  }
+  const candles: Candle[] = [];
+  for (const item of raw) {
+    if (!Array.isArray(item) || item.length < 6) {
+      throw new Error("binance_kline_row_invalid");
+    }
+    const candle: Candle = {
+      openTime: Number(item[0]),
+      closeTime: Number(item[6] ?? Number(item[0]) + intervalMs - 1),
+      open: Number(item[1]),
+      high: Number(item[2]),
+      low: Number(item[3]),
+      close: Number(item[4]),
+      volume: Number(item[5]),
+      trades: Number(item[8] ?? 0),
+      intervalMs,
+    };
+    const geometry = validateCandleGeometry(candle);
+    if (geometry) {
+      throw new Error(`corrupt_candle:${geometry}`);
+    }
+    candles.push(candle);
+  }
+  candles.sort((a, b) => a.openTime - b.openTime);
+  const deduped: Candle[] = [];
+  for (const c of candles) {
+    if (deduped.length && deduped[deduped.length - 1].openTime === c.openTime) continue;
+    deduped.push(c);
+  }
+  return deduped;
+}
+
+// ponytail: exchange outages leave holes; flat bars keep Donchian lookback aligned. Upgrade: drop the window.
+export function fillIntervalGaps(candles: Candle[], intervalMs: number): Candle[] {
+  if (candles.length < 2) return candles;
+  const out: Candle[] = [candles[0]];
+  for (let i = 1; i < candles.length; i += 1) {
+    let t = out[out.length - 1].openTime + intervalMs;
+    const px = out[out.length - 1].close;
+    while (t < candles[i].openTime) {
+      out.push(makeCandle({ openTime: t, intervalMs, open: px, high: px, low: px, close: px }));
+      t += intervalMs;
+    }
+    out.push(candles[i]);
+  }
+  return out;
+}
+
 export function makeCandle(input: {
   openTime: number;
   intervalMs: number;

@@ -199,6 +199,33 @@ export function ReadinessConsole() {
   const [sendResult, setSendResult] = useState<string | null>(null);
   const [goLive, setGoLive] = useState<GoLiveResponse | null>(null);
   const [checkingGoLive, setCheckingGoLive] = useState(false);
+  const [research, setResearch] = useState<{
+    venueNote: string;
+    coverage: { fourHourBars: number; start: string | null; end: string | null };
+    windows: Array<{
+      id: string;
+      label: string;
+      role: string;
+      epochStart: string;
+      epochEnd: string;
+      durationDays: number;
+      totalReturnPct: number;
+      cagrPct: number;
+      sharpe: number | null;
+      tStat: number | null;
+      pValue: number | null;
+      maxDrawdownPct: number;
+      trades: number;
+      winRatePct: number | null;
+      buyHoldReturnPct: number;
+      monthsUp: number;
+      monthsCount: number;
+      finalEquityUsd: number;
+      startEquityUsd: number;
+    }>;
+  } | null>(null);
+  const [researchError, setResearchError] = useState<string | null>(null);
+  const [researching, setResearching] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -299,6 +326,26 @@ export function ReadinessConsole() {
       setDryRunError(err instanceof Error ? err.message : "dry_run_failed");
     } finally {
       setDryRunning(false);
+    }
+  }
+
+  async function runResearch() {
+    setResearching(true);
+    setResearchError(null);
+    try {
+      const response = await fetch("/api/research", { cache: "no-store" });
+      const data = (await response.json()) as {
+        error?: string;
+        venueNote: string;
+        coverage: { fourHourBars: number; start: string | null; end: string | null };
+        windows: NonNullable<typeof research>["windows"];
+      };
+      if (!response.ok) throw new Error(data.error || "research_failed");
+      setResearch({ venueNote: data.venueNote, coverage: data.coverage, windows: data.windows });
+    } catch (err) {
+      setResearchError(err instanceof Error ? err.message : "research_failed");
+    } finally {
+      setResearching(false);
     }
   }
 
@@ -504,6 +551,7 @@ export function ReadinessConsole() {
         <Tabs defaultValue="backtest" className="space-y-4">
           <TabsList className="bg-[#14181f]">
             <TabsTrigger value="backtest">Backtest lab</TabsTrigger>
+            <TabsTrigger value="research">Research holdout</TabsTrigger>
             <TabsTrigger value="dryrun">Dry run</TabsTrigger>
             <TabsTrigger value="golive">Go-live</TabsTrigger>
             <TabsTrigger value="leverage">Leverage &amp; ROE</TabsTrigger>
@@ -644,6 +692,76 @@ export function ReadinessConsole() {
                   <p className="text-sm text-zinc-400">
                     No backtest yet. Run it to see total return, drawdown, trade stats, the equity
                     curve, and the monthly breakdown.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="research">
+            <Card className="border-white/10 bg-[#14181f]">
+              <CardHeader>
+                <CardTitle>Research holdout (Binance spot 4h)</CardTitle>
+                <CardDescription>
+                  Frozen live mix on public Binance Vision BTCUSDT <strong>spot</strong> 4h since
+                  2017. Does not touch Phoenix. No funding. The holdout window ends where Hyperliquid
+                  4h begins (13 May 2024).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Button onClick={() => void runResearch()} disabled={researching}>
+                  {researching ? "Fetching 2017→now…" : "Run frozen mix on Binance spot"}
+                </Button>
+                {researchError ? <p className="text-sm text-rose-400">{researchError}</p> : null}
+                {research ? (
+                  <>
+                    <p className="text-xs text-zinc-500">
+                      {research.coverage.fourHourBars.toLocaleString("en-US")} 4h bars ·{" "}
+                      {research.coverage.start?.slice(0, 10)} → {research.coverage.end?.slice(0, 10)}.{" "}
+                      {research.venueNote}
+                    </p>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Window</TableHead>
+                          <TableHead>Return</TableHead>
+                          <TableHead>Sharpe</TableHead>
+                          <TableHead>p</TableHead>
+                          <TableHead>Max DD</TableHead>
+                          <TableHead>Trades</TableHead>
+                          <TableHead>BTC hold</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {research.windows.map((w) => (
+                          <TableRow key={w.id}>
+                            <TableCell>
+                              <div className="font-medium text-zinc-100">{w.label}</div>
+                              <div className="text-xs text-zinc-500">
+                                {w.epochStart.slice(0, 10)} → {w.epochEnd.slice(0, 10)} · {w.role}
+                              </div>
+                            </TableCell>
+                            <TableCell className={pnlClass(w.totalReturnPct)}>
+                              {signed(w.totalReturnPct, 1)}%
+                            </TableCell>
+                            <TableCell>{w.sharpe === null ? "-" : w.sharpe.toFixed(2)}</TableCell>
+                            <TableCell>
+                              {w.pValue === null ? "-" : w.pValue < 0.001 ? "<0.001" : w.pValue.toFixed(3)}
+                            </TableCell>
+                            <TableCell>{w.maxDrawdownPct.toFixed(0)}%</TableCell>
+                            <TableCell>{w.trades}</TableCell>
+                            <TableCell className={pnlClass(w.buyHoldReturnPct)}>
+                              {signed(w.buyHoldReturnPct, 1)}%
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </>
+                ) : (
+                  <p className="text-sm text-zinc-400">
+                    Not loaded. This downloads ~9 years of public 4h candles once, then scores the
+                    locked 55/7 10% mix. Live trading is unchanged.
                   </p>
                 )}
               </CardContent>

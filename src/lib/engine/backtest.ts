@@ -113,6 +113,8 @@ export function runBacktest(
     note:
       marketSource === "hyperliquid_public"
         ? "Turtle-style trend follower (Donchian + ATR sizing) at up to 10x on 4h closed public candles. Paper only; no live orders."
-        : "Offline synthetic candles. Labeled and not evidence.",
+        : marketSource === "binance_spot_public"
+          ? "Research only: Binance Vision BTCUSDT spot 4h. Frozen live mix. Not Phoenix. No funding."
+          : "Offline synthetic candles. Labeled and not evidence.",
   };
 }
