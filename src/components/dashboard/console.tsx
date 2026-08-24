@@ -49,7 +49,7 @@ interface LabParams {
 
 const DEFAULT_LAB: LabParams = {
   years: 2,
-  capitalUsd: 1000,
+  capitalUsd: 2000,
   riskPct: 10,
   maxLeverage: 20,
   donchianEntry: 55,

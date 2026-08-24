@@ -22,8 +22,8 @@ describe("dynamic strategy backtest", () => {
     expect(report.blownUp).toBe(false);
   });
 
-  it("uses the 1000 USDC capital and 20x leverage cap", () => {
-    expect(report.capitalUsd).toBe(1000);
+  it("uses the 2000 USDC capital and 20x leverage cap", () => {
+    expect(report.capitalUsd).toBe(2000);
     expect(report.maxLeverage).toBe(20);
   });
 });

@@ -26,8 +26,9 @@ Live mix (Donchian 55/7, risk 10%, ATR 2×, TP×ADX 1.2, RSI 50/50), ~2.28y to 2
 | --- | --- | --- | --- | --- | --- |
 | ~2.28y | ~15.5x | 1.89 | 3.21 | ~38% | ~3.5 |
 
-Past backtest performance is not a guarantee of live results. Size from $1000 collateral
-on Phoenix; do not set capital to $2000 unless the account is actually funded to that.
+Past backtest performance is not a guarantee of live results. Live size is
+`min($2000 capital, Phoenix collateral)` so a deposit to ~$2000 is used; extra
+above $2000 still sits as buffer until capital is raised again.
 
 ## Run locally
 

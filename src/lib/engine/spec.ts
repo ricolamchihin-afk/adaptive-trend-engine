@@ -14,13 +14,13 @@ export const PRODUCTION_BOUNDARY = {
   kill_switch: "paper_flatten_only",
 } as const satisfies ProductionBoundary;
 
-// Phoenix, 1000 USDC. Turtle-style trend follower on 4h:
+// Phoenix, 2000 USDC. Turtle-style trend follower on 4h:
 // Donchian 55/7, daily EMA(150), ATR(14)×2 stop, 10% equity risk, RSI 50/50,
 // dynamic TP = 1.2×ADX (clamped 10–60%). Leverage 20x is a cap; ATR sizing
 // typically runs ~4x. In-sample 2.28y: Sharpe ~1.9, ~15x, ~38% DD.
 export const STRATEGY = {
   venue: "phoenix" as const,
-  capitalUsd: 1000,
+  capitalUsd: 2000,
   // Leverage is a hard ceiling; ATR risk sizing sets the actual position.
   leverage: 20,
   maxLeverage: 20,
