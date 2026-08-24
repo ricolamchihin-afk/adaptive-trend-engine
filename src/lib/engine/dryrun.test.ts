@@ -14,6 +14,7 @@ const cfg: LiveConfig = {
   dailyLossLimitUsd: 100,
   maxDrawdownPct: 25,
   credentialsPresent: false,
+  auto4h: false,
 };
 
 describe("dry-run planner", () => {

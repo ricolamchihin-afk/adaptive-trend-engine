@@ -58,6 +58,15 @@ export function goLiveReadiness(
       blocking: true,
     },
     {
+      id: "auto",
+      label: "4h auto-loop (LIVE_AUTO_4H)",
+      ok: cfg.auto4h,
+      detail: cfg.auto4h
+        ? "Server loop opens and closes on each closed 4h bar. Kill flattens Phoenix."
+        : "Auto off — entries only happen if you POST /api/dry-run.",
+      blocking: false,
+    },
+    {
       id: "creds",
       label: "Exchange credentials present",
       ok: signerPresent,

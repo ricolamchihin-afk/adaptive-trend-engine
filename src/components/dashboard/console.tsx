@@ -199,6 +199,13 @@ export function ReadinessConsole() {
   const [sendResult, setSendResult] = useState<string | null>(null);
   const [goLive, setGoLive] = useState<GoLiveResponse | null>(null);
   const [checkingGoLive, setCheckingGoLive] = useState(false);
+  const [autoLoop, setAutoLoop] = useState<{
+    running: boolean;
+    autoEnabled: boolean;
+    canTrade: boolean;
+    killed: boolean;
+    lastTick: { at: string; action: string; reason: string; submitted: boolean } | null;
+  } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -207,6 +214,18 @@ export function ReadinessConsole() {
       if (!response.ok) throw new Error(data.error || "snapshot_failed");
       setSnapshot(data);
       setError(null);
+      const auto = await fetch("/api/auto", { cache: "no-store" });
+      if (auto.ok) {
+        setAutoLoop(
+          (await auto.json()) as {
+            running: boolean;
+            autoEnabled: boolean;
+            canTrade: boolean;
+            killed: boolean;
+            lastTick: { at: string; action: string; reason: string; submitted: boolean } | null;
+          },
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "snapshot_failed");
     } finally {
@@ -224,6 +243,8 @@ export function ReadinessConsole() {
         if (!response.ok) throw new Error(data.error || "snapshot_failed");
         setSnapshot(data);
         setError(null);
+        const auto = await fetch("/api/auto", { cache: "no-store" });
+        if (!cancelled && auto.ok) setAutoLoop((await auto.json()) as NonNullable<typeof autoLoop>);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "snapshot_failed");
       } finally {
@@ -393,14 +414,31 @@ export function ReadinessConsole() {
             <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
               One Phoenix book, {usd(strategy.capitalUsd, 0)}. Donchian breakout entries filtered by the
               daily trend, an ATR trailing stop, and volatility sizing that risks{" "}
-              {(strategy.riskPct * 100).toFixed(1)}% per trade (up to {strategy.maxLeverage}x). Paper only:
-              this console cannot submit, cancel, or resize an order.
+              {(strategy.riskPct * 100).toFixed(1)}% per trade (up to {strategy.maxLeverage}x). The
+              server 4h loop opens and closes on Phoenix. You are not in the trade path. Kill
+              flattens the live book.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <StatusPill tone={sideTone(position.side)}>Position: {position.side}</StatusPill>
-            <StatusPill tone="bad">live_actions_enabled = false</StatusPill>
-            {snapshot.paperKill ? <StatusPill tone="live">Paper kill engaged</StatusPill> : null}
+            {autoLoop ? (
+              <StatusPill tone={autoLoop.killed ? "live" : autoLoop.running && autoLoop.canTrade ? "good" : "warn"}>
+                {autoLoop.killed
+                  ? "Auto killed"
+                  : autoLoop.running && autoLoop.canTrade
+                    ? "Auto 4h live"
+                    : autoLoop.running
+                      ? "Auto 4h idle"
+                      : "Auto 4h off"}
+              </StatusPill>
+            ) : null}
+            {autoLoop?.lastTick ? (
+              <p className="w-full text-xs text-zinc-500">
+                Last auto tick: {autoLoop.lastTick.action} — {autoLoop.lastTick.reason}
+                {autoLoop.lastTick.submitted ? " (submitted)" : ""}
+              </p>
+            ) : null}
+            {snapshot.paperKill ? <StatusPill tone="live">Kill engaged</StatusPill> : null}
           </div>
         </div>
       </header>
@@ -770,8 +808,8 @@ export function ReadinessConsole() {
               <CardHeader>
                 <CardTitle>Go-live readiness</CardTitle>
                 <CardDescription>
-                  Dynamic long/short trend follower. When every blocking item is green and live is
-                  armed, POST of the dry-run plan submits a Phoenix market order.
+                  Dynamic long/short trend follower. When live is armed, the server 4h loop submits
+                  opens and closes. You do not POST. Kill flattens Phoenix.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
@@ -805,7 +843,7 @@ export function ReadinessConsole() {
                       <AlertTitle>{goLive.ready ? "Live is armed" : "Remaining blockers"}</AlertTitle>
                       <AlertDescription className="text-amber-100/80">
                         {goLive.ready
-                          ? "The current long/short plan can be submitted as a Phoenix market order. Past backtest Sharpe is not a guarantee of live results."
+                          ? "Live is armed. The 4h auto-loop trades without you. Past backtest Sharpe is not a guarantee of live results."
                           : "Fix the blocking items below. Live orders stay off until the checklist is green."}
                       </AlertDescription>
                     </Alert>
@@ -876,15 +914,16 @@ export function ReadinessConsole() {
                   <Row k="Write adapter" v="null" />
                   <Row k="Credential modules" v="none imported" />
                   <Row k="Canary authorized" v="false" />
-                  <Row k="Kill switch" v="paper flatten only" />
+                  <Row k="Kill switch" v="flatten Phoenix + halt auto" />
                 </div>
                 <Separator className="bg-white/10" />
                 <p>{snapshot.production.statement}</p>
                 <Button variant="destructive" onClick={() => void paperKill()} disabled={killing}>
-                  {killing ? "Flattening paper book..." : "Paper kill switch"}
+                  {killing ? "Flattening live book..." : "Kill — flatten live and halt auto"}
                 </Button>
                 <p className="text-xs text-zinc-500">
-                  The paper kill switch forces the position flat. It does not touch an exchange.
+                  Kill flattens the Phoenix BTC book (if live is armed) and blocks new auto entries
+                  until the process is restarted with the kill flag cleared.
                 </p>
               </CardContent>
             </Card>

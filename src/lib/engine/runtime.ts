@@ -9,7 +9,7 @@ import { productionBoundary } from "./production";
 import { EPOCH_ID, EPOCH_TITLE, SPEC_HASH, STRATEGY } from "./spec";
 import { buildFeatures } from "./strategy";
 import { atrSizeBtc, defaultSimConfig, runSimulation } from "./simulate";
-import type { RegimeReading } from "./types";
+import type { Regime, RegimeReading } from "./types";
 
 const globalForRuntime = globalThis as typeof globalThis & {
   __smartGridPaperKill?: boolean;
@@ -17,6 +17,14 @@ const globalForRuntime = globalThis as typeof globalThis & {
 
 function paperKilled(): boolean {
   return globalForRuntime.__smartGridPaperKill === true;
+}
+
+export function setPaperKill(on: boolean) {
+  globalForRuntime.__smartGridPaperKill = on;
+}
+
+export function isPaperKilled(): boolean {
+  return paperKilled();
 }
 
 function priceLabel(value: number | null): string {
@@ -34,9 +42,9 @@ export async function getSnapshot() {
   const mark = market.mark ?? 0;
 
   const cfg = liveConfig();
-  const paperSide = killed ? "FLAT" : sim.finalSide;
+  const paperSide: Regime = killed ? "FLAT" : sim.finalSide;
   const freshEntry = !killed && sim.finalOpenedThisBar && paperSide !== "FLAT";
-  const side = freshEntry ? paperSide : "FLAT";
+  const side: Regime = freshEntry ? paperSide : "FLAT";
   const atr = last?.atr ?? 0;
   const sizeAbs =
     side === "FLAT"
@@ -128,6 +136,18 @@ export async function getSnapshot() {
             : null,
       liquidationDistancePct,
       atr,
+      adx: last?.adx ?? null,
+      exitLow: last?.exitLow ?? null,
+      exitHigh: last?.exitHigh ?? null,
+      bar: last
+        ? {
+            openTime: last.candle.openTime,
+            open: last.candle.open,
+            high: last.candle.high,
+            low: last.candle.low,
+            close: last.candle.close,
+          }
+        : null,
     },
     recent: {
       windowDays: features.length ? (last.candle.openTime - features[0].candle.openTime) / 86_400_000 : 0,

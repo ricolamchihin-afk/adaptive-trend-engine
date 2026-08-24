@@ -53,6 +53,51 @@ export function collateralUsdFromTraderSnapshot(snap: {
   return lots / 1_000_000; // ponytail: Rise QUOTE_LOTS_PER_USD is 1e6; use getTrader().collateralBalance if that view is populated
 }
 
+export interface PhoenixBtcPosition {
+  side: "LONG" | "SHORT" | "FLAT";
+  sizeBtc: number;
+  entryUsd: number | null;
+}
+
+function numOrNull(raw: string | undefined): number | null {
+  if (raw === undefined || raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+// BTC book from a Rise trader snapshot. Prefers basePositionUnits (BTC); lots
+// alone are not 1:1 with BTC so they only set the side.
+export function btcPositionFromTraderSnapshot(
+  snap: {
+    snapshot?: {
+      subaccounts?: Array<{
+        positions?: Array<{
+          symbol?: string;
+          basePositionLots?: string;
+          basePositionUnits?: string;
+          entryPriceUsd?: string;
+        }>;
+      }>;
+    };
+  },
+  symbol = "BTC",
+): PhoenixBtcPosition {
+  const want = symbol.toUpperCase();
+  const positions = snap?.snapshot?.subaccounts?.flatMap((s) => s.positions ?? []) ?? [];
+  const pos = positions.find((p) => (p.symbol ?? "").toUpperCase().includes(want));
+  if (!pos) return { side: "FLAT", sizeBtc: 0, entryUsd: null };
+  const units = numOrNull(pos.basePositionUnits);
+  const lots = numOrNull(pos.basePositionLots) ?? 0;
+  const signed = units !== null && units !== 0 ? units : lots;
+  if (signed === 0) return { side: "FLAT", sizeBtc: 0, entryUsd: null };
+  const sizeBtc = units !== null && units !== 0 ? Math.abs(units) : 0;
+  return {
+    side: signed > 0 ? "LONG" : "SHORT",
+    sizeBtc,
+    entryUsd: numOrNull(pos.entryPriceUsd),
+  };
+}
+
 function decodeSecret(raw: string, bytesFromBase58: (s: string) => Uint8Array): Uint8Array | null {
   const trimmed = raw.trim();
   try {
@@ -121,7 +166,12 @@ export class PhoenixPerpExecutor implements Executor {
   }
 
   // Read-only: collateral / open position for the funded check. Never trades.
-  async accountState(): Promise<{ ok: boolean; collateralUsd?: number; detail: string }> {
+  async accountState(): Promise<{
+    ok: boolean;
+    collateralUsd?: number;
+    detail: string;
+    position?: PhoenixBtcPosition;
+  }> {
     const e = phoenixEnv();
     if (!e.apiUrl || !e.rpcUrl) {
       return { ok: false, detail: "Set PHOENIX_API_URL and PHOENIX_SOLANA_RPC." };
@@ -142,12 +192,27 @@ export class PhoenixPerpExecutor implements Executor {
       await client.exchange.ready();
       const snap = (await client.api.traders().getTraderStateSnapshot(pubkey, {
         traderPdaIndex: e.traderPdaIndex,
-      })) as { snapshot?: { collateralUsd?: number; subaccounts?: Array<{ collateral?: string }> } };
+      })) as {
+        snapshot?: {
+          collateralUsd?: number;
+          subaccounts?: Array<{
+            collateral?: string;
+            positions?: Array<{
+              symbol?: string;
+              basePositionLots?: string;
+              basePositionUnits?: string;
+              entryPriceUsd?: string;
+            }>;
+          }>;
+        };
+      };
       const collateralUsd = collateralUsdFromTraderSnapshot(snap);
+      const position = btcPositionFromTraderSnapshot(snap, e.marketSymbol);
       return {
         ok: typeof collateralUsd === "number" && collateralUsd > 0,
         collateralUsd,
-        detail: `Trader ${pubkey.slice(0, 6)}… on ${e.marketSymbol}; collateral ${collateralUsd ?? "unknown"}.`,
+        position,
+        detail: `Trader ${pubkey.slice(0, 6)}… on ${e.marketSymbol}; collateral ${collateralUsd ?? "unknown"}; ${position.side}.`,
       };
     } catch (error) {
       return { ok: false, detail: `Phoenix read failed: ${error instanceof Error ? error.message : "unknown"}` };
@@ -180,6 +245,8 @@ export class PhoenixPerpExecutor implements Executor {
         symbol: e.marketSymbol,
         side: intent.side === "LONG" ? rise.Side.Bid : rise.Side.Ask,
         baseUnits: Math.abs(intent.sizeBtc).toString(),
+        // 128 = OrderFlags.ReduceOnly — flatten must not flip the book.
+        ...(intent.reduceOnly ? { orderFlags: 128 } : {}),
       });
       const ix = await client.ixs.buildPlaceMarketOrder({
         authority: pubkey,

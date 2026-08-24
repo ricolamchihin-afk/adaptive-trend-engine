@@ -12,9 +12,9 @@ export interface DryRunPlan {
   stopPrice: number | null;
   effectiveLeverage: number;
   notionalCapped: boolean;
-  // Invariants: a dry run never submits and is never live.
-  dryRun: true;
-  liveSubmitted: false;
+  // Invariants: a dry-run preview is marked on GET; POST may set liveSubmitted.
+  dryRun: boolean;
+  liveSubmitted: boolean;
   note: string;
 }
 

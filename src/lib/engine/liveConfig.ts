@@ -18,6 +18,7 @@ function envBool(key: string, fallback: boolean): boolean {
 export interface LiveConfig {
   dryRun: boolean;
   liveTradingEnabled: boolean;
+  auto4h: boolean;
   exchange: string;
   accountLabel: string;
   capitalUsd: number;
@@ -34,6 +35,7 @@ export function liveConfig(): LiveConfig {
     // Dry run defaults ON and is the only supported mode until a write adapter exists.
     dryRun: envBool("DRY_RUN", true),
     liveTradingEnabled: envBool("LIVE_TRADING_ENABLED", false),
+    auto4h: envBool("LIVE_AUTO_4H", true),
     exchange: process.env.EXCHANGE ?? STRATEGY.venue,
     accountLabel: process.env.EXCHANGE_ACCOUNT_LABEL ?? "",
     capitalUsd: envNum("SG_CAPITAL_USD", STRATEGY.capitalUsd),
