@@ -56,6 +56,12 @@ const DEFAULT_LAB: LabParams = {
   rsiShortMax: 100,
 };
 
+interface ConnectionsResponse {
+  marketData: { ok: boolean; source?: string; mark?: number; error?: string };
+  telegram: { enabled: boolean; configured: boolean; chatCount: number; botOk: boolean; botUsername?: string; error?: string };
+  exchange: { name: string; apiUrlSet: boolean; apiKeyPresent: boolean; signerPresent: boolean; tradingConnection: string };
+}
+
 interface DryRunResponse {
   generatedAt: string;
   liveTradingEnabled: boolean;
@@ -158,6 +164,10 @@ export function ReadinessConsole() {
   const [dryRun, setDryRun] = useState<DryRunResponse | null>(null);
   const [dryRunError, setDryRunError] = useState<string | null>(null);
   const [dryRunning, setDryRunning] = useState(false);
+  const [connections, setConnections] = useState<ConnectionsResponse | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -196,6 +206,43 @@ export function ReadinessConsole() {
       window.clearInterval(timer);
     };
   }, []);
+
+  async function checkConnections() {
+    setChecking(true);
+    try {
+      const response = await fetch("/api/connections", { cache: "no-store" });
+      const data = (await response.json()) as ConnectionsResponse;
+      setConnections(data);
+    } catch {
+      setConnections(null);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function sendTelegramTest() {
+    setSending(true);
+    setSendResult(null);
+    try {
+      const response = await fetch("/api/dry-run", { method: "POST" });
+      const data = (await response.json()) as {
+        error?: string;
+        telegram?: { attempted: boolean; sent: number; results: Array<{ ok: boolean; error?: string }> };
+      };
+      if (!response.ok) throw new Error(data.error || "send_failed");
+      const tg = data.telegram;
+      if (!tg || !tg.attempted) {
+        setSendResult("Telegram is not enabled/configured (set TELEGRAM_ENABLED=true, token, chat ids).");
+      } else {
+        const failed = tg.results.filter((r) => !r.ok).map((r) => r.error).join(", ");
+        setSendResult(`Sent to ${tg.sent}/${tg.results.length} chat(s).${failed ? ` Errors: ${failed}` : ""}`);
+      }
+    } catch (err) {
+      setSendResult(err instanceof Error ? err.message : "send_failed");
+    } finally {
+      setSending(false);
+    }
+  }
 
   async function runDryRun() {
     setDryRunning(true);
@@ -524,6 +571,52 @@ export function ReadinessConsole() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
+                <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Connections</p>
+                    <div className="flex gap-2">
+                      <Button onClick={() => void checkConnections()} disabled={checking}>
+                        {checking ? "Checking..." : "Check connections"}
+                      </Button>
+                      <Button onClick={() => void sendTelegramTest()} disabled={sending}>
+                        {sending ? "Sending..." : "Send test alert to Telegram"}
+                      </Button>
+                    </div>
+                  </div>
+                  {connections ? (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      <div className="flex items-center gap-2">
+                        <StatusPill tone={connections.marketData.ok ? "good" : "bad"}>Market data</StatusPill>
+                        <span className="text-xs text-zinc-400">
+                          {connections.marketData.ok
+                            ? `${connections.marketData.source} · ${connections.marketData.mark ? usd(connections.marketData.mark, 0) : "-"}`
+                            : connections.marketData.error}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <StatusPill tone={connections.telegram.botOk ? "good" : connections.telegram.configured ? "bad" : "neutral"}>Telegram</StatusPill>
+                        <span className="text-xs text-zinc-400">
+                          {connections.telegram.botOk
+                            ? `@${connections.telegram.botUsername} · ${connections.telegram.chatCount} chat(s)`
+                            : connections.telegram.configured
+                              ? connections.telegram.error
+                              : "not configured"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <StatusPill tone="warn">Exchange</StatusPill>
+                        <span className="text-xs text-zinc-400">
+                          {connections.exchange.name} · key {connections.exchange.apiKeyPresent ? "set" : "no"} · signer{" "}
+                          {connections.exchange.signerPresent ? "set" : "no"} · dry-run only
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
+                  {sendResult ? <p className="mt-3 text-xs text-amber-200/90">{sendResult}</p> : null}
+                  {connections ? (
+                    <p className="mt-2 text-[11px] text-zinc-600">{connections.exchange.tradingConnection}</p>
+                  ) : null}
+                </div>
                 <Button onClick={() => void runDryRun()} disabled={dryRunning}>
                   {dryRunning ? "Computing..." : "Run dry run"}
                 </Button>

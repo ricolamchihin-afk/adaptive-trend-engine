@@ -16,6 +16,27 @@ export interface DryRunPlan {
   note: string;
 }
 
+// Formats a dry-run plan as a plain-text Telegram alert. Clearly marked as a
+// preview that is never submitted.
+export function formatDryRunMessage(plan: DryRunPlan, exchange: string, mark: number): string {
+  const lines = [
+    "[DRY RUN] Smart Grid trend follower",
+    `Venue: ${exchange}  |  BTC mark: $${Math.round(mark).toLocaleString("en-US")}`,
+    `Action: ${plan.action.replaceAll("_", " ")}  |  Side: ${plan.side}`,
+  ];
+  if (plan.action !== "HOLD") {
+    lines.push(
+      `Size: ${Math.abs(plan.sizeBtc).toFixed(5)} BTC ($${Math.round(plan.notionalUsd).toLocaleString("en-US")}, ${plan.effectiveLeverage.toFixed(1)}x)`,
+    );
+    lines.push(
+      `Entry: $${Math.round(plan.entryPrice).toLocaleString("en-US")}  |  Stop: ${plan.stopPrice ? `$${Math.round(plan.stopPrice).toLocaleString("en-US")}` : "-"}`,
+    );
+    if (plan.notionalCapped) lines.push("Size clamped by your risk limit.");
+  }
+  lines.push(`Submitted: ${plan.liveSubmitted} — no live execution (preview only).`);
+  return lines.join("\n");
+}
+
 // Produces the order the strategy would place right now to match the live signal,
 // scaled to the configured capital and clamped by the hard risk limits. It never
 // submits: liveSubmitted is always false. There is no exchange write adapter.
