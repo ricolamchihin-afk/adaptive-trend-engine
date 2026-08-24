@@ -14,56 +14,33 @@ export const PRODUCTION_BOUNDARY = {
   kill_switch: "paper_flatten_only",
 } as const satisfies ProductionBoundary;
 
-// Phoenix, 1000 USDC. A Turtle-style trend follower on the 4h execution timeframe:
-// Donchian breakout entries, opposite (shorter) Donchian breakout as a trailing
-// exit, ATR volatility position sizing, and a daily trend filter. Leverage is a
-// cap (10x); ATR risk sizing usually keeps effective leverage well below it.
-// This is the strategy the trial-and-error search converged on; the fixed 1:1
-// take-profit / stop-loss and the persistent grid both lost and were discarded.
+// Phoenix, 1000 USDC. Turtle-style trend follower on 4h:
+// Donchian 55/7, daily EMA(150), ATR(14)×2 stop, 10% equity risk, RSI 50/50,
+// dynamic TP = 1.2×ADX (clamped 10–60%). Leverage 20x is a cap; ATR sizing
+// typically runs ~4x. In-sample 2.28y: Sharpe ~1.9, ~15x, ~38% DD.
 export const STRATEGY = {
   venue: "phoenix" as const,
   capitalUsd: 1000,
-  // Leverage is a hard ceiling; ATR risk sizing sets the actual position and
-  // usually stays well below it. Raised to 20x for more headroom.
+  // Leverage is a hard ceiling; ATR risk sizing sets the actual position.
   leverage: 20,
   maxLeverage: 20,
-  // Higher-timeframe trend filter: only take longs above the daily EMA, shorts below.
-  // A long 150-period daily filter with a wide 3x ATR stop and an RSI 50/50 momentum
-  // gate was the best robust combination: Sharpe ~1.4-1.8, Sortino ~2-2.9, ~14% drawdown,
-  // significant (p<0.05) on the 2y/3y windows.
   dailyEmaPeriod: 150,
-  // Donchian breakout windows (4h bars). Responsive 34-bar entry with a fast 5-bar
-  // trailing exit: the frequency sweep found a 5-bar exit raises BOTH trade frequency
-  // (~3-4/mo) and Sharpe (~1.3-2.0). Forcing 10-15 trades/mo made returns insignificant.
-  donchianEntry: 34,
-  donchianExit: 5,
-  // ADX trend-strength gate. Disabled by default (a strict gate hurt returns); still
-  // reported and re-enableable in the lab.
+  donchianEntry: 55,
+  donchianExit: 7,
   adxPeriod: 14,
   adxThreshold: 0,
-  // RSI momentum confirmation: only long when RSI >= 50, only short when RSI <= 50.
   rsiPeriod: 14,
   rsiLongMin: 50,
   rsiShortMax: 50,
-  // Optional fixed take-profit in ROE % of equity at entry. 0 = let winners run to
-  // the trailing exit (default). Set e.g. 20 to close a winner at +20% ROE.
   takeProfitRoePct: 0,
-  // Dynamic take-profit scaled by trend strength: TP% = tpAdxFactor * ADX(at entry),
-  // clamped to [tpMinRoePct, tpMaxRoePct]. Factor 1.0 (TP% ~= the ADX reading) was the
-  // best in trial-and-error: neutral at low risk, and a clear lift as leverage rises
-  // (e.g. at risk 8% it raised Sharpe 2.0 -> 2.3, CAGR 137% -> 172% at the same drawdown).
-  tpAdxFactor: 1.0,
+  tpAdxFactor: 1.2,
   tpMinRoePct: 10,
   tpMaxRoePct: 60,
-  // Optional confirmation filters (off by default; tune/enable in the lab).
   macdFilter: 0,
   emaSlopeMinPct: 0,
-  // ATR sizing + initial stop. A wide 3x ATR stop cuts whipsaw exits and lowers drawdown.
   atrPeriod: 14,
-  atrStopMult: 3,
-  // Risk a fixed fraction of equity per trade; volatility sets the size. 3% balances
-  // ~40% CAGR with a Sharpe above 1 and a ~31% drawdown.
-  riskPct: 0.03,
+  atrStopMult: 2,
+  riskPct: 0.10,
   liquidationPct: 0.045,
 } as const;
 
