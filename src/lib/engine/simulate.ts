@@ -61,6 +61,8 @@ export interface SimResult {
   avgMonthPct: number;
   monthsAbove20: number;
   monthsCount: number;
+  monthly: Array<{ month: string; returnPct: number; trades: number; endEquityUsd: number }>;
+  equityCurve: Array<{ t: number; equity: number }>;
   feesUsd: number;
   perRegimePnlUsd: Record<Regime, number>;
   barsInRegime: Record<Regime, number>;
@@ -97,6 +99,8 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
 
   const perRegime: Record<Regime, number> = { LONG: 0, SHORT: 0, GRID: 0, FLAT: 0 };
   const barsInRegime: Record<Regime, number> = { LONG: 0, SHORT: 0, GRID: 0, FLAT: 0 };
+  let currentBarMonth = "";
+  const monthTrades = new Map<string, number>();
 
   let peakEquity = equity;
   let maxDrawdownPct = 0;
@@ -119,6 +123,7 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
     trades += 1;
     if (pnl > 0) wins += 1;
     else if (pnl < 0) losses += 1;
+    monthTrades.set(currentBarMonth, (monthTrades.get(currentBarMonth) ?? 0) + 1);
     if (liquidation) {
       liquidations += 1;
       everLiquidated = true;
@@ -149,6 +154,7 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
   for (const f of features) {
     const candle = f.candle;
     lastClose = candle.close;
+    currentBarMonth = new Date(candle.openTime).toISOString().slice(0, 7);
     if (blownUp) {
       barsInRegime.FLAT += 1;
       continue;
@@ -250,6 +256,25 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
     }
     prevMonthEquity = end;
   }
+  const monthly = monthOrder.map((key, i) => ({
+    month: key,
+    returnPct: monthlyReturnsPct[i] ?? 0,
+    trades: monthTrades.get(key) ?? 0,
+    endEquityUsd: monthEnd.get(key) as number,
+  }));
+
+  // Downsample the per-bar equity curve for charting (cap at ~360 points).
+  const maxPoints = 360;
+  const step = Math.max(1, Math.ceil(equityCurve.length / maxPoints));
+  const curve: Array<{ t: number; equity: number }> = [];
+  for (let i = 0; i < equityCurve.length; i += step) {
+    curve.push({ t: curveTimes[i], equity: equityCurve[i] });
+  }
+  const lastIdx = equityCurve.length - 1;
+  if (lastIdx >= 0 && curve[curve.length - 1]?.t !== curveTimes[lastIdx]) {
+    curve.push({ t: curveTimes[lastIdx], equity: equityCurve[lastIdx] });
+  }
+
   const bestMonthPct = monthlyReturnsPct.length ? Math.max(...monthlyReturnsPct) : 0;
   const worstMonthPct = monthlyReturnsPct.length ? Math.min(...monthlyReturnsPct) : 0;
   const avgMonthPct = monthlyReturnsPct.length
@@ -288,6 +313,8 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
     avgMonthPct,
     monthsAbove20,
     monthsCount: monthlyReturnsPct.length,
+    monthly,
+    equityCurve: curve,
     feesUsd,
     perRegimePnlUsd: perRegime,
     barsInRegime,

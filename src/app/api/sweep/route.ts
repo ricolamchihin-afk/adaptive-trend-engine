@@ -8,44 +8,47 @@ export const dynamic = "force-dynamic";
 // One-variable-at-a-time sensitivity sweep around the working trend-follower
 // baseline. Loads a year of candles once, then re-runs the backtest changing a
 // single control per row so the effect on monthly return is isolated.
+// Anchored on the current default strategy so the sweep isolates each control's
+// effect on trade frequency and risk-adjusted return.
 const BASE_SIM: Partial<SimConfig> = {
-  riskPct: 0.02,
-  maxLeverage: 10,
-  atrStopMult: 2,
+  riskPct: 0.03,
+  maxLeverage: 20,
+  atrStopMult: 3,
   adxThreshold: 0,
-  liquidationPct: 0.09,
+  liquidationPct: 0.045,
+  rsiLongMin: 50,
+  rsiShortMax: 50,
 };
 const BASE_FEAT: Partial<FeatureParams> = {
-  donchianEntry: 55,
-  donchianExit: 20,
+  donchianEntry: 34,
+  donchianExit: 5,
   atrPeriod: 14,
   adxPeriod: 14,
-  dailyEmaPeriod: 50,
+  rsiPeriod: 14,
+  dailyEmaPeriod: 150,
 };
 
+// Ranges skewed toward the low end to probe higher trade frequency.
 const SIM_SWEEPS: Record<string, number[]> = {
-  riskPct: [0.01, 0.02, 0.03, 0.05, 0.08],
-  maxLeverage: [5, 10, 20],
-  atrStopMult: [1.5, 2, 3, 4],
-  adxThreshold: [0, 15, 20, 25],
+  atrStopMult: [1, 1.5, 2, 3],
+  rsiLongMin: [0, 40, 50],
 };
 const FEAT_SWEEPS: Record<string, number[]> = {
-  donchianEntry: [20, 34, 55, 89],
-  donchianExit: [10, 20, 34],
-  dailyEmaPeriod: [20, 50, 100, 200],
-  atrPeriod: [10, 14, 20],
+  donchianEntry: [8, 12, 20, 34, 55],
+  donchianExit: [2, 3, 5, 7, 10],
+  dailyEmaPeriod: [20, 50, 100, 150],
 };
 
 function metrics(report: BacktestReport) {
-  const monthlyPct =
-    report.cagrPct > -100 ? ((1 + report.cagrPct / 100) ** (1 / 12) - 1) * 100 : -100;
+  const tradesPerMonth = report.monthsCount > 0 ? report.trades / report.monthsCount : 0;
   return {
-    cagrPct: Number(report.cagrPct.toFixed(1)),
-    monthlyPct: Number(monthlyPct.toFixed(2)),
-    sharpe: report.sharpe === null ? null : Number(report.sharpe.toFixed(2)),
-    maxDrawdownPct: Number(report.maxDrawdownPct.toFixed(1)),
+    tradesPerMonth: Number(tradesPerMonth.toFixed(1)),
     trades: report.trades,
-    totalReturnPct: Number(report.totalReturnPct.toFixed(1)),
+    sharpe: report.sharpe === null ? null : Number(report.sharpe.toFixed(2)),
+    sortino: report.sortino === null ? null : Number(report.sortino.toFixed(2)),
+    cagrPct: Number(report.cagrPct.toFixed(1)),
+    maxDrawdownPct: Number(report.maxDrawdownPct.toFixed(1)),
+    pValue: report.pValue === null ? null : Number(report.pValue.toFixed(3)),
   };
 }
 

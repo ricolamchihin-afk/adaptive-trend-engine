@@ -26,6 +26,7 @@ const REGIMES: Regime[] = ["LONG", "SHORT", "FLAT"];
 
 interface LabParams {
   years: number;
+  capitalUsd: number;
   riskPct: number; // percent
   maxLeverage: number;
   donchianEntry: number;
@@ -42,10 +43,11 @@ interface LabParams {
 
 const DEFAULT_LAB: LabParams = {
   years: 2,
+  capitalUsd: 1000,
   riskPct: 3,
   maxLeverage: 20,
   donchianEntry: 34,
-  donchianExit: 7,
+  donchianExit: 5,
   atrPeriod: 14,
   atrStopMult: 3,
   adxPeriod: 14,
@@ -96,6 +98,7 @@ interface DryRunResponse {
 
 const LAB_FIELDS: Array<{ key: keyof LabParams; label: string; step?: number; hint: string }> = [
   { key: "years", label: "Years", hint: "1-3 (4h feed caps ~2.3y)" },
+  { key: "capitalUsd", label: "Initial USD", step: 100, hint: "starting capital" },
   { key: "riskPct", label: "Risk % / trade", step: 0.5, hint: "ATR volatility sizing" },
   { key: "maxLeverage", label: "Max leverage", hint: "hard cap" },
   { key: "donchianEntry", label: "Donchian entry", hint: "breakout lookback (bars)" },
@@ -275,6 +278,7 @@ export function ReadinessConsole() {
     try {
       const q = new URLSearchParams({
         years: String(p.years),
+        capital: String(p.capitalUsd),
         risk: String(p.riskPct / 100),
         lev: String(p.maxLeverage),
         entry: String(p.donchianEntry),
@@ -497,7 +501,7 @@ export function ReadinessConsole() {
                       <Metric label="CAGR (annualized)" value={`${signed(backtest.cagrPct)}%`} hint={`${usd(backtest.startEquityUsd, 0)} to ${usd(backtest.finalEquityUsd, 0)} · ${signed(backtest.totalReturnPct)}% total`} valueClass={pnlClass(backtest.cagrPct)} />
                       <Metric label="Sharpe" value={backtest.sharpe === null ? "-" : backtest.sharpe.toFixed(2)} hint={`${backtest.annualVolPct.toFixed(0)}% annual vol`} valueClass={pnlClass(backtest.sharpe ?? 0)} />
                       <Metric label="Max drawdown" value={`-${backtest.maxDrawdownPct.toFixed(1)}%`} hint="peak-to-trough on equity" valueClass="text-rose-300" />
-                      <Metric label="Trades" value={String(backtest.trades)} hint={`${backtest.winRatePct === null ? "n/a" : `${backtest.winRatePct.toFixed(0)}% win`} · fees ${usd(backtest.feesUsd)} · ${backtest.durationDays.toFixed(0)}d`} />
+                      <Metric label="Trades" value={`${String(backtest.trades)} (${backtest.monthsCount ? (backtest.trades / backtest.monthsCount).toFixed(1) : "0"}/mo)`} hint={`${backtest.winRatePct === null ? "n/a" : `${backtest.winRatePct.toFixed(0)}% win`} · fees ${usd(backtest.feesUsd)}`} />
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                       <Metric label="Sortino" value={backtest.sortino === null ? "-" : backtest.sortino.toFixed(2)} hint="downside-risk adjusted" valueClass={pnlClass(backtest.sortino ?? 0)} />
@@ -546,14 +550,47 @@ export function ReadinessConsole() {
                         </TableBody>
                       </Table>
                     </div>
+                    <div>
+                      <p className="mb-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                        Equity curve ({usd(backtest.startEquityUsd, 0)} start)
+                      </p>
+                      <EquityChart points={backtest.equityCurve} start={backtest.startEquityUsd} />
+                    </div>
+                    <div className="overflow-x-auto">
+                      <p className="mb-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                        Monthly breakdown
+                      </p>
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="border-white/10">
+                            <TableHead>Month</TableHead>
+                            <TableHead className="text-right">Return</TableHead>
+                            <TableHead className="text-right">Trades</TableHead>
+                            <TableHead className="text-right">End equity</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {backtest.monthly.map((m) => (
+                            <TableRow key={m.month} className="border-white/10">
+                              <TableCell className="font-mono text-xs">{m.month}</TableCell>
+                              <TableCell className={cn("text-right font-mono text-xs", pnlClass(m.returnPct))}>
+                                {signed(m.returnPct, 1)}%
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-xs">{m.trades}</TableCell>
+                              <TableCell className="text-right font-mono text-xs">{usd(m.endEquityUsd, 0)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
                     <p className="text-xs text-zinc-500">
                       {backtest.epochStart} to {backtest.epochEnd}. {backtest.note}
                     </p>
                   </>
                 ) : (
                   <p className="text-sm text-zinc-400">
-                    No backtest yet. Run it to see total return, drawdown, trade stats, and the
-                    long/short split over the year.
+                    No backtest yet. Run it to see total return, drawdown, trade stats, the equity
+                    curve, and the monthly breakdown.
                   </p>
                 )}
               </CardContent>
@@ -778,6 +815,45 @@ function Row({ k, v, valueClass }: { k: string; v: string; valueClass?: string }
     <div className="flex items-start justify-between gap-4">
       <span className="text-zinc-500">{k}</span>
       <span className={cn("text-right font-medium text-zinc-100", valueClass)}>{v}</span>
+    </div>
+  );
+}
+
+function EquityChart({ points, start }: { points: Array<{ t: number; equity: number }>; start: number }) {
+  if (!points || points.length < 2) {
+    return <p className="text-xs text-zinc-500">Not enough data to chart.</p>;
+  }
+  const width = 760;
+  const height = 220;
+  const pad = 10;
+  const equities = points.map((p) => p.equity);
+  const min = Math.min(...equities, start);
+  const max = Math.max(...equities, start);
+  const range = max - min || 1;
+  const x = (i: number) => pad + (i / (points.length - 1)) * (width - 2 * pad);
+  const y = (equity: number) => pad + (1 - (equity - min) / range) * (height - 2 * pad);
+  const path = points
+    .map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.equity).toFixed(1)}`)
+    .join(" ");
+  const last = points[points.length - 1].equity;
+  const up = last >= start;
+  const stroke = up ? "#34d399" : "#f87171";
+  const baseY = y(start).toFixed(1);
+  const startDate = new Date(points[0].t).toISOString().slice(0, 10);
+  const endDate = new Date(points[points.length - 1].t).toISOString().slice(0, 10);
+  return (
+    <div>
+      <div className="overflow-hidden rounded-lg border border-white/10 bg-black/30">
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-56 w-full" preserveAspectRatio="none">
+          <line x1={pad} y1={baseY} x2={width - pad} y2={baseY} stroke="#3f3f46" strokeWidth="1" strokeDasharray="4 4" />
+          <path d={path} fill="none" stroke={stroke} strokeWidth="2" vectorEffect="non-scaling-stroke" />
+        </svg>
+      </div>
+      <div className="mt-1 flex justify-between text-[11px] text-zinc-500">
+        <span>{startDate}</span>
+        <span>peak {usd(max, 0)} · trough {usd(min, 0)}</span>
+        <span>{endDate}</span>
+      </div>
     </div>
   );
 }

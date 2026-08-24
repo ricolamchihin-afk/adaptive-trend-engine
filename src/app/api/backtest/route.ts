@@ -16,6 +16,7 @@ export async function GET(request: Request) {
     const years = Math.min(5, Math.max(1, num(params, "years") || 1));
     const market = await loadYearMarket(Date.now(), years * 365);
     const sim = {
+      capitalUsd: num(params, "capital"),
       riskPct: num(params, "risk"),
       maxLeverage: num(params, "lev"),
       atrStopMult: num(params, "atrMult"),

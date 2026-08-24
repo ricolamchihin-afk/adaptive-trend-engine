@@ -32,10 +32,11 @@ export const STRATEGY = {
   // gate was the best robust combination: Sharpe ~1.4-1.8, Sortino ~2-2.9, ~14% drawdown,
   // significant (p<0.05) on the 2y/3y windows.
   dailyEmaPeriod: 150,
-  // Donchian breakout windows (4h bars). Responsive 34-bar entry with a fast 7-bar
-  // trailing exit (cuts losers quickly, keeps the big trend winners).
+  // Donchian breakout windows (4h bars). Responsive 34-bar entry with a fast 5-bar
+  // trailing exit: the frequency sweep found a 5-bar exit raises BOTH trade frequency
+  // (~3-4/mo) and Sharpe (~1.3-2.0). Forcing 10-15 trades/mo made returns insignificant.
   donchianEntry: 34,
-  donchianExit: 7,
+  donchianExit: 5,
   // ADX trend-strength gate. Disabled by default (a strict gate hurt returns); still
   // reported and re-enableable in the lab.
   adxPeriod: 14,

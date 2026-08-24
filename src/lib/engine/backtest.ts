@@ -1,5 +1,4 @@
 import { defaultSimConfig, runSimulation, type SimConfig } from "./simulate";
-import { STRATEGY } from "./spec";
 import { buildFeatures, type FeatureParams } from "./strategy";
 import type { MarketSeries, MarketSource, Regime } from "./types";
 
@@ -30,6 +29,8 @@ export interface BacktestReport {
   monthsAbove20: number;
   monthsCount: number;
   monthlyReturnsPct: number[];
+  monthly: Array<{ month: string; returnPct: number; trades: number; endEquityUsd: number }>;
+  equityCurve: Array<{ t: number; equity: number }>;
   maxDrawdownPct: number;
   trades: number;
   winRatePct: number | null;
@@ -58,7 +59,8 @@ export function runBacktest(
   }
 
   const features = buildFeatures(series, featureOverride);
-  const result = runSimulation(features, { ...defaultSimConfig(), ...configOverride });
+  const cfg = { ...defaultSimConfig(), ...configOverride };
+  const result = runSimulation(features, cfg);
   const first = exec[0].openTime;
   const last = exec[exec.length - 1].openTime;
   const durationDays = (last - first) / 86_400_000;
@@ -77,8 +79,8 @@ export function runBacktest(
     durationDays,
     marketSource,
     requestedYears,
-    capitalUsd: STRATEGY.capitalUsd,
-    maxLeverage: STRATEGY.maxLeverage,
+    capitalUsd: cfg.capitalUsd,
+    maxLeverage: cfg.maxLeverage,
     startEquityUsd: result.startEquityUsd,
     finalEquityUsd: result.finalEquityUsd,
     totalReturnPct: result.totalReturnPct,
@@ -96,6 +98,8 @@ export function runBacktest(
     monthsAbove20: result.monthsAbove20,
     monthsCount: result.monthsCount,
     monthlyReturnsPct: result.monthlyReturnsPct,
+    monthly: result.monthly,
+    equityCurve: result.equityCurve,
     maxDrawdownPct: result.maxDrawdownPct,
     trades: result.trades,
     winRatePct: result.winRatePct,
