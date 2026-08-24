@@ -14,6 +14,11 @@ export interface SimConfig {
   rsiShortMax: number;
   // Fixed take-profit in ROE % of the equity at entry. 0 disables it (let winners run).
   takeProfitRoePct: number;
+  // Dynamic take-profit scaled by trend strength: TP% = tpAdxFactor * ADX(at entry),
+  // clamped to [tpMinRoePct, tpMaxRoePct]. 0 factor = use the fixed take-profit above.
+  tpAdxFactor: number;
+  tpMinRoePct: number;
+  tpMaxRoePct: number;
 }
 
 // 4h bars per year, for annualizing the Sharpe ratio.
@@ -40,6 +45,9 @@ export function defaultSimConfig(): SimConfig {
     rsiLongMin: STRATEGY.rsiLongMin,
     rsiShortMax: STRATEGY.rsiShortMax,
     takeProfitRoePct: STRATEGY.takeProfitRoePct,
+    tpAdxFactor: STRATEGY.tpAdxFactor,
+    tpMinRoePct: STRATEGY.tpMinRoePct,
+    tpMaxRoePct: STRATEGY.tpMaxRoePct,
   };
 }
 
@@ -91,6 +99,7 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
   let entry = 0;
   let stopPrice = 0;
   let entryEquity = cfg.capitalUsd;
+  let entryAdx = 0;
 
   let feesUsd = 0;
   let trades = 0;
@@ -165,11 +174,15 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
       continue;
     }
 
-    // Take-profit price such that pnl / entryEquity == takeProfitRoePct.
-    const tpEnabled = cfg.takeProfitRoePct > 0 && posBtc !== 0;
-    const tpPrice = tpEnabled
-      ? entry + ((cfg.takeProfitRoePct / 100) * entryEquity) / posBtc
-      : NaN;
+    // Take-profit ROE target: dynamic (scaled by trend strength / ADX at entry) when
+    // tpAdxFactor > 0, otherwise the fixed take-profit. tpPrice solves
+    // pnl / entryEquity == effTpRoe.
+    const effTpRoe =
+      cfg.tpAdxFactor > 0
+        ? Math.min(cfg.tpMaxRoePct, Math.max(cfg.tpMinRoePct, cfg.tpAdxFactor * entryAdx))
+        : cfg.takeProfitRoePct;
+    const tpEnabled = effTpRoe > 0 && posBtc !== 0;
+    const tpPrice = tpEnabled ? entry + ((effTpRoe / 100) * entryEquity) / posBtc : NaN;
 
     let justExited = false;
     if (posBtc > 0) {
@@ -208,8 +221,10 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
     if (posBtc === 0 && !justExited && trendStrong && f.atr !== null && f.atr > 0) {
       if (f.dailyDir > 0 && rsiOkLong && f.entryHigh !== null && candle.high >= f.entryHigh) {
         open(1, Math.max(candle.open, f.entryHigh), f.atr, "LONG");
+        entryAdx = f.adx ?? 0;
       } else if (f.dailyDir < 0 && rsiOkShort && f.entryLow !== null && candle.low <= f.entryLow) {
         open(-1, Math.min(candle.open, f.entryLow), f.atr, "SHORT");
+        entryAdx = f.adx ?? 0;
       }
     }
 

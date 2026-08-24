@@ -24,6 +24,9 @@ export async function GET(request: Request) {
       rsiLongMin: num(params, "rsiLongMin"),
       rsiShortMax: num(params, "rsiShortMax"),
       takeProfitRoePct: num(params, "tp"),
+      tpAdxFactor: num(params, "tpAdx"),
+      tpMinRoePct: num(params, "tpMin"),
+      tpMaxRoePct: num(params, "tpMax"),
     };
     const feat = {
       donchianEntry: num(params, "entry"),

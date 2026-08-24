@@ -40,6 +40,9 @@ interface LabParams {
   rsiLongMin: number;
   rsiShortMax: number;
   takeProfitRoePct: number;
+  tpAdxFactor: number;
+  tpMinRoePct: number;
+  tpMaxRoePct: number;
 }
 
 const DEFAULT_LAB: LabParams = {
@@ -58,6 +61,9 @@ const DEFAULT_LAB: LabParams = {
   rsiLongMin: 50,
   rsiShortMax: 50,
   takeProfitRoePct: 0,
+  tpAdxFactor: 1.0,
+  tpMinRoePct: 10,
+  tpMaxRoePct: 60,
 };
 
 interface ConnectionsResponse {
@@ -114,6 +120,9 @@ const LAB_FIELDS: Array<{ key: keyof LabParams; label: string; step?: number; hi
   { key: "rsiLongMin", label: "RSI long ≥", hint: "0 disables (e.g. 50)" },
   { key: "rsiShortMax", label: "RSI short ≤", hint: "100 disables (e.g. 50)" },
   { key: "takeProfitRoePct", label: "Take-profit ROE %", step: 5, hint: "0 = let winners run; e.g. 20" },
+  { key: "tpAdxFactor", label: "TP × ADX factor", step: 0.1, hint: "dynamic TP% = factor × ADX; 0 = off" },
+  { key: "tpMinRoePct", label: "TP min ROE %", step: 5, hint: "dynamic TP floor" },
+  { key: "tpMaxRoePct", label: "TP max ROE %", step: 5, hint: "dynamic TP ceiling" },
 ];
 
 function pnlClass(value: number): string {
@@ -295,6 +304,9 @@ export function ReadinessConsole() {
         rsiLongMin: String(p.rsiLongMin),
         rsiShortMax: String(p.rsiShortMax),
         tp: String(p.takeProfitRoePct),
+        tpAdx: String(p.tpAdxFactor),
+        tpMin: String(p.tpMinRoePct),
+        tpMax: String(p.tpMaxRoePct),
       });
       const response = await fetch(`/api/backtest?${q}`, { cache: "no-store" });
       const data = (await response.json()) as BacktestReport & { error?: string };
