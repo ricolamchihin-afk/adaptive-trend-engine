@@ -54,6 +54,14 @@ export function collateralUsdFromTraderSnapshot(snap: {
   return lots / 1_000_000; // ponytail: Rise QUOTE_LOTS_PER_USD is 1e6; use getTrader().collateralBalance if that view is populated
 }
 
+export function baseLotsToBtc(lots: number, decimals = 4): number {
+  if (!Number.isFinite(lots) || lots === 0) return 0;
+  // Fill history sometimes already stores BTC in the lots field (e.g. "0.0001").
+  if (!Number.isInteger(lots) || Math.abs(lots) < 1) return Math.abs(lots);
+  const d = Number.isFinite(decimals) && decimals >= 0 ? decimals : 4;
+  return Math.abs(lots) / 10 ** d;
+}
+
 export interface PhoenixBtcPosition {
   side: "LONG" | "SHORT" | "FLAT";
   sizeBtc: number;
@@ -66,8 +74,8 @@ function numOrNull(raw: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-// BTC book from a Rise trader snapshot. Prefers basePositionUnits (BTC); lots
-// alone are not 1:1 with BTC so they only set the side.
+// BTC book from a Rise trader snapshot. Prefers basePositionUnits (BTC). Integer
+// lots are scaled by market baseLotsDecimals (BTC = 4 → 949 lots = 0.0949 BTC).
 export function btcPositionFromTraderSnapshot(
   snap: {
     snapshot?: {
@@ -82,6 +90,7 @@ export function btcPositionFromTraderSnapshot(
     };
   },
   symbol = "BTC",
+  baseLotsDecimals = 4,
 ): PhoenixBtcPosition {
   const want = symbol.toUpperCase();
   const positions = snap?.snapshot?.subaccounts?.flatMap((s) => s.positions ?? []) ?? [];
@@ -91,7 +100,7 @@ export function btcPositionFromTraderSnapshot(
   const lots = numOrNull(pos.basePositionLots) ?? 0;
   const signed = units !== null && units !== 0 ? units : lots;
   if (signed === 0) return { side: "FLAT", sizeBtc: 0, entryUsd: null };
-  const sizeBtc = units !== null && units !== 0 ? Math.abs(units) : 0;
+  const sizeBtc = units !== null && units !== 0 ? Math.abs(units) : baseLotsToBtc(lots, baseLotsDecimals);
   return {
     side: signed > 0 ? "LONG" : "SHORT",
     sizeBtc,
@@ -160,7 +169,10 @@ function kitIxToWeb3(
 type RiseApi = {
   exchange: { ready: () => Promise<unknown> };
   api: {
-    markets: () => { getLatestMarketStats: (s: string) => Promise<Record<string, unknown>> };
+    markets: () => {
+      getLatestMarketStats: (s: string) => Promise<Record<string, unknown>>;
+      getMarket: (s: string) => Promise<{ units?: { baseLotsDecimals?: number }; baseLotsDecimals?: number }>;
+    };
     traders: () => { getTraderStateSnapshot: (a: string, o: unknown) => Promise<unknown> };
     collateral: () => {
       getTraderCollateralHistory: (
@@ -211,6 +223,22 @@ export function markFromMarketStats(raw: Record<string, unknown> | null | undefi
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+const gLots = globalThis as typeof globalThis & { __ateBtcLotsDecimals?: { at: number; n: number } };
+
+async function btcLotsDecimals(api: RiseApi): Promise<number> {
+  const hit = gLots.__ateBtcLotsDecimals;
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.n;
+  try {
+    const m = await api.api.markets().getMarket(phoenixEnv().marketSymbol);
+    const n = Number(m.units?.baseLotsDecimals ?? m.baseLotsDecimals);
+    const d = Number.isFinite(n) && n >= 0 ? n : 4;
+    gLots.__ateBtcLotsDecimals = { at: Date.now(), n: d };
+    return d;
+  } catch {
+    return 4;
+  }
+}
+
 export class PhoenixPerpExecutor implements Executor {
   readonly name = "phoenix-perp";
 
@@ -248,7 +276,8 @@ export class PhoenixPerpExecutor implements Executor {
         };
       };
       const collateralUsd = collateralUsdFromTraderSnapshot(snap);
-      const position = btcPositionFromTraderSnapshot(snap, e.marketSymbol);
+      const decimals = await btcLotsDecimals(session.api);
+      const position = btcPositionFromTraderSnapshot(snap, e.marketSymbol, decimals);
       return {
         ok: typeof collateralUsd === "number" && collateralUsd > 0,
         collateralUsd,

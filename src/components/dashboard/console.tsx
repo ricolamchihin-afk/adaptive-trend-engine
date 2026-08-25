@@ -218,6 +218,7 @@ export function ReadinessConsole() {
     canTrade: boolean;
     killed: boolean;
     equityUsd?: number | null;
+    book?: { side: string; sizeBtc: number; entry: number; stop: number; tp: number | null } | null;
     lastTick: { at: string; action: string; reason: string; submitted: boolean } | null;
   } | null>(null);
 
@@ -414,7 +415,20 @@ export function ReadinessConsole() {
 
   if (!snapshot) return null;
 
-  const { regime, position, strategy, market, leverage, recent } = snapshot;
+  const { regime, position, strategy, market, leverage, recent, live } = snapshot;
+  const liveSide = live?.side && live.side !== "FLAT" ? live.side : "FLAT";
+  const liveSize = liveSide === "FLAT" ? 0 : Math.abs(live?.sizeBtc ?? 0);
+  const liveEntry = liveSide === "FLAT" ? null : (live?.entryUsd ?? null);
+  const liveStop =
+    autoLoop?.book?.stop ??
+    (liveSide === "LONG" && liveEntry && position.atr > 0
+      ? liveEntry - 2 * position.atr
+      : liveSide === "SHORT" && liveEntry && position.atr > 0
+        ? liveEntry + 2 * position.atr
+        : null);
+  const liveNotional = liveSize * (market.mark || 0);
+  const liveEquity = live?.collateralUsd && live.collateralUsd > 0 ? live.collateralUsd : strategy.capitalUsd;
+  const liveLev = liveEquity > 0 ? liveNotional / liveEquity : 0;
 
   return (
     <div className="min-h-screen bg-[#0b0d10] text-zinc-100">
@@ -435,7 +449,9 @@ export function ReadinessConsole() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <StatusPill tone={sideTone(position.side)}>Position: {position.side}</StatusPill>
+            <StatusPill tone={sideTone(liveSide === "FLAT" ? position.paperSide : liveSide)}>
+              Position: {liveSide}
+            </StatusPill>
             {autoLoop ? (
               <StatusPill tone={autoLoop.killed ? "live" : autoLoop.running && autoLoop.canTrade ? "good" : "warn"}>
                 {autoLoop.killed
@@ -488,20 +504,20 @@ export function ReadinessConsole() {
           />
           <Metric
             label="Position"
-            value={position.side === "FLAT" ? "Flat" : `${position.side} ${Math.abs(position.sizeBtc).toFixed(4)} BTC`}
+            value={liveSide === "FLAT" ? "Flat" : `${liveSide} ${liveSize.toFixed(4)} BTC`}
             hint={
-              position.side === "FLAT"
+              liveSide === "FLAT"
                 ? position.paperSide && position.paperSide !== "FLAT"
-                  ? `paper book ${position.paperSide}; wait for next 4h breakout`
-                  : "no exposure"
-                : `${usd(position.notionalUsd, 0)} notional · ${position.leverage.toFixed(1)}x`
+                  ? `signal ${position.paperSide}; wait for next 4h breakout`
+                  : "no Phoenix exposure"
+                : `${usd(liveNotional, 0)} notional · ${liveLev.toFixed(1)}x · entry ${liveEntry ? usd(liveEntry, 0) : "-"}`
             }
-            valueClass={position.side === "SHORT" ? "text-amber-300" : position.side === "LONG" ? "text-emerald-400" : undefined}
+            valueClass={liveSide === "SHORT" ? "text-amber-300" : liveSide === "LONG" ? "text-emerald-400" : undefined}
           />
           <Metric
             label="Trailing stop"
-            value={position.stopPrice ? usd(position.stopPrice, 0) : "-"}
-            hint={position.entry ? `entry ${usd(position.entry, 0)}` : "flat"}
+            value={liveStop ? usd(liveStop, 0) : "-"}
+            hint={liveEntry ? `Phoenix entry ${usd(liveEntry, 0)}` : "flat"}
             valueClass="text-rose-300"
           />
           <Metric
@@ -555,7 +571,7 @@ export function ReadinessConsole() {
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <ThesisChip label="Position" value={position.side} tone={sideTone(position.side)} />
+              <ThesisChip label="Position" value={liveSide} tone={sideTone(liveSide)} />
               <ThesisChip
                 label="Daily filter"
                 value={regime.dailyDir === 1 ? "Above (long)" : regime.dailyDir === -1 ? "Below (short)" : "Neutral"}
@@ -563,12 +579,18 @@ export function ReadinessConsole() {
               />
               <ThesisChip
                 label="Effective leverage"
-                value={position.side === "FLAT" ? "0x" : `${position.leverage.toFixed(1)}x`}
+                value={liveSide === "FLAT" ? "0x" : `${liveLev.toFixed(1)}x`}
                 tone="neutral"
               />
               <ThesisChip
                 label="Liquidation"
-                value={position.liquidationPrice ? usd(position.liquidationPrice, 0) : "-"}
+                value={
+                  liveSide === "LONG" && market.mark
+                    ? usd(market.mark * (1 - position.liquidationDistancePct), 0)
+                    : liveSide === "SHORT" && market.mark
+                      ? usd(market.mark * (1 + position.liquidationDistancePct), 0)
+                      : "-"
+                }
                 tone="bad"
               />
             </div>

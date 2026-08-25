@@ -31,12 +31,21 @@ describe("btcPositionFromTraderSnapshot", () => {
     expect(p.entryUsd).toBe(79840);
   });
 
-  it("treats lots-only as side without inventing 1-lot = 1 BTC", () => {
+  it("scales integer lots by baseLotsDecimals (BTC = 4)", () => {
+    const p = btcPositionFromTraderSnapshot({
+      snapshot: { subaccounts: [{ positions: [{ symbol: "BTC", basePositionLots: "949", entryPriceUsd: "79197" }] }] },
+    });
+    expect(p.side).toBe("LONG");
+    expect(p.sizeBtc).toBeCloseTo(0.0949, 6);
+    expect(p.entryUsd).toBe(79197);
+  });
+
+  it("treats a 1-lot dust fill as 0.0001 BTC, not 1 BTC", () => {
     const p = btcPositionFromTraderSnapshot({
       snapshot: { subaccounts: [{ positions: [{ symbol: "BTC", basePositionLots: "1" }] }] },
     });
     expect(p.side).toBe("LONG");
-    expect(p.sizeBtc).toBe(0);
+    expect(p.sizeBtc).toBeCloseTo(0.0001, 6);
   });
 
   it("returns flat when there is no BTC book", () => {

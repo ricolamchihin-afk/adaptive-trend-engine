@@ -35,9 +35,14 @@ function priceLabel(value: number | null): string {
 export async function getSnapshot() {
   // Need ~1y of 4h + EMA150 daily warmup so the live signal matches the backtest
   // (short loadMarket lookback left dailyDir=0 and the book stuck FLAT).
-  const [market, phoenixMark] = await Promise.all([
+  const [market, phoenixMark, funded] = await Promise.all([
     loadYearMarket(Date.now(), 365),
     new PhoenixPerpExecutor().btcMark().catch(() => null),
+    new PhoenixPerpExecutor().accountState().catch(() => ({
+      ok: false as const,
+      collateralUsd: undefined as number | undefined,
+      position: { side: "FLAT" as const, sizeBtc: 0, entryUsd: null as number | null },
+    })),
   ]);
   const features = buildFeatures(market.series);
   const sim = runSimulation(features, defaultSimConfig());
@@ -167,6 +172,12 @@ export async function getSnapshot() {
       makerRoundTripFeeRoePct: phoenixMakerRoundTripRoePct(STRATEGY.maxLeverage),
     },
     production: productionBoundary(),
+    live: {
+      side: funded.position?.side ?? "FLAT",
+      sizeBtc: funded.position?.sizeBtc ?? 0,
+      entryUsd: funded.position?.entryUsd ?? null,
+      collateralUsd: funded.collateralUsd ?? null,
+    },
     paperKill: killed,
   };
 }
