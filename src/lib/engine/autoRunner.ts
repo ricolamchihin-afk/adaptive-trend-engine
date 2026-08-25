@@ -7,6 +7,7 @@ import { liveConfig, liveEquityUsd, scaledDailyLossUsd, drawdownHalted } from ".
 import { sendTelegram } from "./notify";
 import { PhoenixPerpExecutor } from "./phoenixExecutor";
 import { recordLocalSample } from "./equityStore";
+import { unrealizedPnlUsd } from "./equityCurve";
 import { getSnapshot, isPaperKilled, setPaperKill } from "./runtime";
 import { STRATEGY } from "./spec";
 import { defaultSimConfig } from "./simulate";
@@ -173,7 +174,9 @@ export async function tickAutoLoop(): Promise<AutoLoopStatus> {
     const phoenix = funded.position ?? { side: "FLAT" as const, sizeBtc: 0, entryUsd: null };
     const equityUsd = liveEquityUsd(cfg.capitalUsd, funded.collateralUsd, cfg.compound);
     b.persist.lastEquityUsd = equityUsd;
-    void recordLocalSample(equityUsd);
+    void recordLocalSample(
+      equityUsd + unrealizedPnlUsd(phoenix.side, phoenix.sizeBtc, phoenix.entryUsd, mark),
+    );
     const dayUtc = new Date().toISOString().slice(0, 10);
     if (b.persist.dayUtc !== dayUtc) {
       b.persist.dayUtc = dayUtc;

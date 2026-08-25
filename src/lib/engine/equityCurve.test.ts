@@ -8,6 +8,8 @@ import {
   quoteLotsToUsd,
   rebuildEquity,
   netExternalUsd,
+  unrealizedPnlUsd,
+  markedEquityUsd,
   type CollateralEventLite,
 } from "./equityCurve";
 
@@ -91,5 +93,13 @@ describe("rebuildEquity", () => {
     expect(s.pnlUsd).toBeCloseTo(100, 6);
     expect(s.returnPct).toBeCloseTo(5, 6);
     expect(netExternalUsd([{ t: 1, type: "deposit", amountUsd: 2000, afterUsd: 2000 }], null)).toBe(2000);
+  });
+});
+
+describe("unrealizedPnlUsd", () => {
+  it("marks open-position P&L on Phoenix mark, not cash collateral", () => {
+    expect(unrealizedPnlUsd("LONG", 0.0949, 79197, 80197)).toBeCloseTo(94.9, 4);
+    expect(unrealizedPnlUsd("FLAT", 0.0949, 79197, 80197)).toBe(0);
+    expect(markedEquityUsd(2001, 94.9)).toBeCloseTo(2095.9, 4);
   });
 });

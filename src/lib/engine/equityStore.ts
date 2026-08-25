@@ -5,9 +5,11 @@ import {
   curveStats,
   downsampleEquity,
   liveBookStartMs,
+  markedEquityUsd,
   mergeEquitySeries,
   netExternalUsd,
   rebuildEquity,
+  unrealizedPnlUsd,
   type EquityPoint,
 } from "./equityCurve";
 import { liveConfig } from "./liveConfig";
@@ -60,14 +62,17 @@ export async function liveEquityReport(): Promise<{
 }> {
   const cfg = liveConfig();
   const phoenix = new PhoenixPerpExecutor();
-  const [local, funded] = await Promise.all([
+  const [local, funded, mark] = await Promise.all([
     loadLocalEquity(),
-    phoenix.accountState().catch(() => ({ collateralUsd: undefined as number | undefined })),
+    phoenix.accountState().catch(() => ({
+      collateralUsd: undefined as number | undefined,
+      position: { side: "FLAT" as const, sizeBtc: 0, entryUsd: null as number | null },
+    })),
+    phoenix.btcMark().catch(() => null),
   ]);
-  const live =
-    typeof funded.collateralUsd === "number" && funded.collateralUsd > 0
-      ? { t: Date.now(), equity: funded.collateralUsd, source: "live" as const }
-      : null;
+  const upnl = unrealizedPnlUsd(funded.position?.side, funded.position?.sizeBtc, funded.position?.entryUsd, mark);
+  const marked = markedEquityUsd(funded.collateralUsd, upnl);
+  const live = marked != null ? { t: Date.now(), equity: marked, source: "live" as const } : null;
 
   let cached = g.__ateEquityVenue;
   if (!cached || Date.now() - cached.at >= 10 * 60_000) {

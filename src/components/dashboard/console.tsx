@@ -415,7 +415,7 @@ export function ReadinessConsole() {
 
   if (!snapshot) return null;
 
-  const { regime, position, strategy, market, leverage, recent, live } = snapshot;
+  const { regime, position, strategy, market, leverage, live } = snapshot;
   const liveSide = live?.side && live.side !== "FLAT" ? live.side : "FLAT";
   const liveSize = liveSide === "FLAT" ? 0 : Math.abs(live?.sizeBtc ?? 0);
   const liveEntry = liveSide === "FLAT" ? null : (live?.entryUsd ?? null);
@@ -429,6 +429,10 @@ export function ReadinessConsole() {
   const liveNotional = liveSize * (market.mark || 0);
   const liveEquity = live?.collateralUsd && live.collateralUsd > 0 ? live.collateralUsd : strategy.capitalUsd;
   const liveLev = liveEquity > 0 ? liveNotional / liveEquity : 0;
+  const liveUpnl =
+    liveSide === "FLAT" || !liveEntry || !market.mark
+      ? 0
+      : (liveSide === "SHORT" ? -liveSize : liveSize) * (market.mark - liveEntry);
 
   return (
     <div className="min-h-screen bg-[#0b0d10] text-zinc-100">
@@ -521,10 +525,10 @@ export function ReadinessConsole() {
             valueClass="text-rose-300"
           />
           <Metric
-            label={`Recent (${recent.windowDays.toFixed(0)}d) return`}
-            value={`${signed(recent.totalReturnPct)}%`}
-            hint={`${recent.trades} trades · ${recent.winRatePct === null ? "n/a" : `${recent.winRatePct.toFixed(0)}% win`} · ${recent.maxDrawdownPct.toFixed(0)}% maxDD`}
-            valueClass={pnlClass(recent.totalReturnPct)}
+            label="Unrealized P&L"
+            value={usd(liveUpnl)}
+            hint={liveSide === "FLAT" ? "no open Phoenix book" : `mark ${usd(market.mark, 0)} vs entry ${usd(liveEntry ?? 0, 0)}`}
+            valueClass={pnlClass(liveUpnl)}
           />
         </section>
 
@@ -540,11 +544,11 @@ export function ReadinessConsole() {
             {equity && equity.points.length >= 2 ? (
               <>
                 <div className="grid gap-3 sm:grid-cols-3">
-                  <Metric label="Now" value={usd(equity.lastUsd, 0)} hint={equity.venueOk ? "Phoenix" : "local"} />
+                  <Metric label="Now" value={usd(equity.lastUsd, 0)} hint="cash + open P&L" />
                   <Metric
                     label="Trading P&L"
                     value={usd(equity.tradingPnlUsd)}
-                    hint="ex-deposits / withdrawals"
+                    hint="vs deposits, includes open P&L"
                     valueClass={pnlClass(equity.tradingPnlUsd)}
                   />
                   <Metric label="Max DD" value={`-${equity.maxDdPct.toFixed(1)}%`} hint="peak to trough on this curve" valueClass="text-rose-300" />

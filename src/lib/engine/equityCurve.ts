@@ -124,6 +124,27 @@ export function netExternalUsd(events: CollateralEventLite[], startMs: number | 
     }, 0);
 }
 
+export function unrealizedPnlUsd(
+  side: "LONG" | "SHORT" | "FLAT" | undefined,
+  sizeBtc: number | undefined,
+  entryUsd: number | null | undefined,
+  mark: number | null | undefined,
+): number {
+  if (side !== "LONG" && side !== "SHORT") return 0;
+  const size = Math.abs(sizeBtc ?? 0);
+  const entry = entryUsd ?? 0;
+  const px = mark ?? 0;
+  if (size <= 0 || entry <= 0 || px <= 0) return 0;
+  return (side === "LONG" ? 1 : -1) * size * (px - entry);
+}
+
+export function markedEquityUsd(collateralUsd: number | undefined, upnl: number): number | null {
+  if (typeof collateralUsd !== "number" || !Number.isFinite(collateralUsd) || collateralUsd <= 0) {
+    return null;
+  }
+  return collateralUsd + upnl;
+}
+
 export function liveBookStartMs(events: CollateralEventLite[]): number | null {
   const ordered = [...events].sort((a, b) => a.t - b.t);
   let start: number | null = null;
