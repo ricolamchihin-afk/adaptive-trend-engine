@@ -9,29 +9,26 @@ there is no exchange write adapter, so nothing can place, cancel, or resize a li
 Dynamic directional exposure (long / short / flat), driven by:
 
 - **Trend filter:** daily EMA(150) regime gate (longs only above, shorts only below).
-- **Entry:** Donchian breakout (34-bar) with an ADX trend and RSI(50/50) momentum gate.
-- **Sizing:** ATR volatility position sizing — each trade risks a fixed % of equity
-  (default 3%); leverage is a hard cap (20x) that the sizing rarely reaches.
-- **Exit:** fast Donchian trailing stop (5-bar) + initial 3×ATR stop; winners run.
-- **Take-profit:** dynamic, scaled by trend strength — `TP% = 1.0 × ADX` at entry
-  (clamped 10–60%). Stronger trends get a larger target.
+- **Entry:** Donchian breakout (55-bar) with an RSI(50/50) momentum gate.
+- **Sizing:** ATR volatility position sizing — each trade risks 10% of equity;
+  leverage is a hard cap (20x). Typical effective leverage is ~4x, not 20x.
+- **Exit:** Donchian trailing stop (7-bar) + initial 2×ATR stop; winners run.
+- **Take-profit:** dynamic, `TP% = 1.2 × ADX` at entry (clamped 10–60%).
 
 Optional, tunable in the lab: ADX threshold, RSI bounds, MACD-histogram filter,
 EMA-slope filter, fixed take-profit.
 
 ## Backtest results (public Hyperliquid 4h candles)
 
-Default config, validated 1/2/3 years and statistically significant (p<0.05) on 2y/3y:
+Live mix (Donchian 55/7, risk 10%, ATR 2×, TP×ADX 1.2, RSI 50/50), ~2.28y to 2026-08-24:
 
-| Window | CAGR | Sharpe | Sortino | Max DD |
-| --- | --- | --- | --- | --- |
-| 1Y | ~26% | 1.37 | 2.33 | ~11% |
-| 2Y | ~49% | 2.05 | 3.57 | ~12% |
-| 3Y | ~29% | 1.34 | 2.26 | ~23% |
+| Window | Return | Sharpe | Sortino | Max DD | Trades / mo |
+| --- | --- | --- | --- | --- | --- |
+| ~2.28y | ~15.5x | 1.89 | 3.21 | ~38% | ~3.5 |
 
-Aggressive profile (risk 8% + dynamic ADX take-profit): ~137–172% CAGR at Sharpe ~2.3
-and ~29% drawdown, with several +20%+ months — higher return for materially higher risk.
-Past backtest performance is not a guarantee of live results.
+Past backtest performance is not a guarantee of live results. Live size is
+`min($2000 capital, Phoenix collateral)` so a deposit to ~$2000 is used; extra
+above $2000 still sits as buffer until capital is raised again.
 
 ## Run locally
 

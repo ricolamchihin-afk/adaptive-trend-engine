@@ -7,6 +7,7 @@ export interface OrderIntent {
   sizeBtc: number;
   notionalUsd: number;
   price: number;
+  reduceOnly?: boolean;
 }
 
 export interface ExecutionResult {

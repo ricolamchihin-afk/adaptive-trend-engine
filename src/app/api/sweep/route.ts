@@ -11,17 +11,17 @@ export const dynamic = "force-dynamic";
 // Anchored on the current default strategy so the sweep isolates each control's
 // effect on trade frequency and risk-adjusted return.
 const BASE_SIM: Partial<SimConfig> = {
-  riskPct: 0.03,
+  riskPct: 0.10,
   maxLeverage: 20,
-  atrStopMult: 3,
+  atrStopMult: 2,
   adxThreshold: 0,
   liquidationPct: 0.045,
   rsiLongMin: 50,
   rsiShortMax: 50,
 };
 const BASE_FEAT: Partial<FeatureParams> = {
-  donchianEntry: 34,
-  donchianExit: 5,
+  donchianEntry: 55,
+  donchianExit: 7,
   atrPeriod: 14,
   adxPeriod: 14,
   rsiPeriod: 14,

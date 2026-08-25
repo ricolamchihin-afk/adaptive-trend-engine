@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 43871",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "trade": "npx --yes tsx src/lib/engine/tradeDaemon.ts"
   },
   "dependencies": {
     "@ellipsis-labs/rise": "^0.4.67",

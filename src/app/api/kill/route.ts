@@ -1,13 +1,13 @@
-import { triggerPaperKill } from "@/lib/engine/runtime";
+import { killLive } from "@/lib/engine/autoRunner";
 
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-  const snapshot = await triggerPaperKill();
+  const auto = await killLive();
   return Response.json({
     ok: true,
-    paperOnly: true,
-    live_actions_enabled: false,
-    snapshot,
+    paperOnly: false,
+    flattened: auto.lastTick?.action === "CLOSE",
+    auto,
   });
 }

@@ -49,13 +49,13 @@ interface LabParams {
 
 const DEFAULT_LAB: LabParams = {
   years: 2,
-  capitalUsd: 1000,
-  riskPct: 3,
+  capitalUsd: 2000,
+  riskPct: 10,
   maxLeverage: 20,
-  donchianEntry: 34,
-  donchianExit: 5,
+  donchianEntry: 55,
+  donchianExit: 7,
   atrPeriod: 14,
-  atrStopMult: 3,
+  atrStopMult: 2,
   adxPeriod: 14,
   adxThreshold: 0,
   dailyEma: 150,
@@ -63,12 +63,23 @@ const DEFAULT_LAB: LabParams = {
   rsiLongMin: 50,
   rsiShortMax: 50,
   takeProfitRoePct: 0,
-  tpAdxFactor: 1.0,
+  tpAdxFactor: 1.2,
   tpMinRoePct: 10,
   tpMaxRoePct: 60,
   macdFilter: 0,
   emaSlopeMinPct: 0,
 };
+
+interface EquityReport {
+  points: Array<{ t: number; equity: number; source: string }>;
+  startUsd: number;
+  lastUsd: number;
+  tradingPnlUsd: number;
+  returnPct: number;
+  maxDdPct: number;
+  note: string;
+  venueOk: boolean;
+}
 
 interface GoLiveResponse {
   ready: boolean;
@@ -199,6 +210,17 @@ export function ReadinessConsole() {
   const [sendResult, setSendResult] = useState<string | null>(null);
   const [goLive, setGoLive] = useState<GoLiveResponse | null>(null);
   const [checkingGoLive, setCheckingGoLive] = useState(false);
+  const [equity, setEquity] = useState<EquityReport | null>(null);
+  const [autoLoop, setAutoLoop] = useState<{
+    running: boolean;
+    autoEnabled: boolean;
+    compound?: boolean;
+    canTrade: boolean;
+    killed: boolean;
+    equityUsd?: number | null;
+    book?: { side: string; sizeBtc: number; entry: number; stop: number; tp: number | null } | null;
+    lastTick: { at: string; action: string; reason: string; submitted: boolean } | null;
+  } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -207,6 +229,18 @@ export function ReadinessConsole() {
       if (!response.ok) throw new Error(data.error || "snapshot_failed");
       setSnapshot(data);
       setError(null);
+      const auto = await fetch("/api/auto", { cache: "no-store" });
+      if (auto.ok) {
+        setAutoLoop(
+          (await auto.json()) as {
+            running: boolean;
+            autoEnabled: boolean;
+            canTrade: boolean;
+            killed: boolean;
+            lastTick: { at: string; action: string; reason: string; submitted: boolean } | null;
+          },
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "snapshot_failed");
     } finally {
@@ -224,6 +258,10 @@ export function ReadinessConsole() {
         if (!response.ok) throw new Error(data.error || "snapshot_failed");
         setSnapshot(data);
         setError(null);
+        const auto = await fetch("/api/auto", { cache: "no-store" });
+        if (!cancelled && auto.ok) setAutoLoop((await auto.json()) as NonNullable<typeof autoLoop>);
+        const eq = await fetch("/api/equity", { cache: "no-store" });
+        if (!cancelled && eq.ok) setEquity((await eq.json()) as EquityReport);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "snapshot_failed");
       } finally {
@@ -377,7 +415,24 @@ export function ReadinessConsole() {
 
   if (!snapshot) return null;
 
-  const { regime, position, strategy, market, leverage, recent } = snapshot;
+  const { regime, position, strategy, market, leverage, live } = snapshot;
+  const liveSide = live?.side && live.side !== "FLAT" ? live.side : "FLAT";
+  const liveSize = liveSide === "FLAT" ? 0 : Math.abs(live?.sizeBtc ?? 0);
+  const liveEntry = liveSide === "FLAT" ? null : (live?.entryUsd ?? null);
+  const liveStop =
+    autoLoop?.book?.stop ??
+    (liveSide === "LONG" && liveEntry && position.atr > 0
+      ? liveEntry - 2 * position.atr
+      : liveSide === "SHORT" && liveEntry && position.atr > 0
+        ? liveEntry + 2 * position.atr
+        : null);
+  const liveNotional = liveSize * (market.mark || 0);
+  const liveEquity = live?.collateralUsd && live.collateralUsd > 0 ? live.collateralUsd : strategy.capitalUsd;
+  const liveLev = liveEquity > 0 ? liveNotional / liveEquity : 0;
+  const liveUpnl =
+    liveSide === "FLAT" || !liveEntry || !market.mark
+      ? 0
+      : (liveSide === "SHORT" ? -liveSize : liveSize) * (market.mark - liveEntry);
 
   return (
     <div className="min-h-screen bg-[#0b0d10] text-zinc-100">
@@ -393,14 +448,34 @@ export function ReadinessConsole() {
             <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
               One Phoenix book, {usd(strategy.capitalUsd, 0)}. Donchian breakout entries filtered by the
               daily trend, an ATR trailing stop, and volatility sizing that risks{" "}
-              {(strategy.riskPct * 100).toFixed(1)}% per trade (up to {strategy.maxLeverage}x). Paper only:
-              this console cannot submit, cancel, or resize an order.
+              {(strategy.riskPct * 100).toFixed(1)}% per trade (up to {strategy.maxLeverage}x). The
+              4h loop trades without you. Size compounds on Phoenix collateral. Kill flattens.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <StatusPill tone={sideTone(position.side)}>Position: {position.side}</StatusPill>
-            <StatusPill tone="bad">live_actions_enabled = false</StatusPill>
-            {snapshot.paperKill ? <StatusPill tone="live">Paper kill engaged</StatusPill> : null}
+            <StatusPill tone={sideTone(liveSide === "FLAT" ? position.paperSide : liveSide)}>
+              Position: {liveSide}
+            </StatusPill>
+            {autoLoop ? (
+              <StatusPill tone={autoLoop.killed ? "live" : autoLoop.running && autoLoop.canTrade ? "good" : "warn"}>
+                {autoLoop.killed
+                  ? "Auto killed"
+                  : autoLoop.running && autoLoop.canTrade
+                    ? autoLoop.compound
+                      ? "Auto 4h · compounding"
+                      : "Auto 4h live"
+                    : autoLoop.running
+                      ? "Auto 4h idle"
+                      : "Auto 4h off"}
+              </StatusPill>
+            ) : null}
+            {autoLoop?.lastTick ? (
+              <p className="w-full text-xs text-zinc-500">
+                Last auto tick: {autoLoop.lastTick.action} — {autoLoop.lastTick.reason}
+                {autoLoop.lastTick.submitted ? " (submitted)" : ""}
+              </p>
+            ) : null}
+            {snapshot.paperKill ? <StatusPill tone="live">Kill engaged</StatusPill> : null}
           </div>
         </div>
       </header>
@@ -420,26 +495,74 @@ export function ReadinessConsole() {
         ) : null}
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Metric label="BTC mark" value={market.mark ? usd(market.mark, 0) : "-"} hint={market.lastClosed ?? "no closed bar"} />
+          <Metric
+            label="BTC mark"
+            value={market.mark ? usd(market.mark, 0) : "-"}
+            hint={
+              market.lastClosed
+                ? `${market.markSource === "phoenix" ? "Phoenix mark" : "HL fallback"} · last 4h bar ${market.lastClosed}`
+                : market.markSource === "phoenix"
+                  ? "Phoenix mark"
+                  : "live mid"
+            }
+          />
           <Metric
             label="Position"
-            value={position.side === "FLAT" ? "Flat" : `${position.side} ${Math.abs(position.sizeBtc).toFixed(4)} BTC`}
-            hint={position.side === "FLAT" ? "no exposure" : `${usd(position.notionalUsd, 0)} notional · ${position.leverage.toFixed(1)}x`}
-            valueClass={position.side === "SHORT" ? "text-amber-300" : position.side === "LONG" ? "text-emerald-400" : undefined}
+            value={liveSide === "FLAT" ? "Flat" : `${liveSide} ${liveSize.toFixed(4)} BTC`}
+            hint={
+              liveSide === "FLAT"
+                ? position.paperSide && position.paperSide !== "FLAT"
+                  ? `signal ${position.paperSide}; wait for next 4h breakout`
+                  : "no Phoenix exposure"
+                : `${usd(liveNotional, 0)} notional · ${liveLev.toFixed(1)}x · entry ${liveEntry ? usd(liveEntry, 0) : "-"}`
+            }
+            valueClass={liveSide === "SHORT" ? "text-amber-300" : liveSide === "LONG" ? "text-emerald-400" : undefined}
           />
           <Metric
             label="Trailing stop"
-            value={position.stopPrice ? usd(position.stopPrice, 0) : "-"}
-            hint={position.entry ? `entry ${usd(position.entry, 0)}` : "flat"}
+            value={liveStop ? usd(liveStop, 0) : "-"}
+            hint={liveEntry ? `Phoenix entry ${usd(liveEntry, 0)}` : "flat"}
             valueClass="text-rose-300"
           />
           <Metric
-            label={`Recent (${recent.windowDays.toFixed(0)}d) return`}
-            value={`${signed(recent.totalReturnPct)}%`}
-            hint={`${recent.trades} trades · ${recent.winRatePct === null ? "n/a" : `${recent.winRatePct.toFixed(0)}% win`} · ${recent.maxDrawdownPct.toFixed(0)}% maxDD`}
-            valueClass={pnlClass(recent.totalReturnPct)}
+            label="Unrealized P&L"
+            value={usd(liveUpnl)}
+            hint={liveSide === "FLAT" ? "no open Phoenix book" : `mark ${usd(market.mark, 0)} vs entry ${usd(liveEntry ?? 0, 0)}`}
+            valueClass={pnlClass(liveUpnl)}
           />
         </section>
+
+        <Card className="border-white/10 bg-[#14181f]">
+          <CardHeader>
+            <CardTitle>Live equity</CardTitle>
+            <CardDescription>
+              Phoenix collateral, not the Hyperliquid backtest. If this PC sleeps, the next load
+              backfills from Phoenix deposits and fills and marks open risk on closed 4h bars.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {equity && equity.points.length >= 2 ? (
+              <>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Metric label="Now" value={usd(equity.lastUsd, 0)} hint="cash + open P&L" />
+                  <Metric
+                    label="Trading P&L"
+                    value={usd(equity.tradingPnlUsd)}
+                    hint="vs deposits, includes open P&L"
+                    valueClass={pnlClass(equity.tradingPnlUsd)}
+                  />
+                  <Metric label="Max DD" value={`-${equity.maxDdPct.toFixed(1)}%`} hint="peak to trough on this curve" valueClass="text-rose-300" />
+                </div>
+                <EquityChart points={equity.points} start={equity.startUsd} />
+                <p className="text-xs text-zinc-500">{equity.note}</p>
+              </>
+            ) : (
+              <p className="text-sm text-zinc-400">
+                Waiting for Phoenix history or the first live tick. Keep the bot running.
+              </p>
+            )}
+          </CardContent>
+        </Card>
 
         <Card className="border-white/10 bg-[#14181f]">
           <CardHeader>
@@ -452,7 +575,7 @@ export function ReadinessConsole() {
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <ThesisChip label="Position" value={position.side} tone={sideTone(position.side)} />
+              <ThesisChip label="Position" value={liveSide} tone={sideTone(liveSide)} />
               <ThesisChip
                 label="Daily filter"
                 value={regime.dailyDir === 1 ? "Above (long)" : regime.dailyDir === -1 ? "Below (short)" : "Neutral"}
@@ -460,12 +583,18 @@ export function ReadinessConsole() {
               />
               <ThesisChip
                 label="Effective leverage"
-                value={position.side === "FLAT" ? "0x" : `${position.leverage.toFixed(1)}x`}
+                value={liveSide === "FLAT" ? "0x" : `${liveLev.toFixed(1)}x`}
                 tone="neutral"
               />
               <ThesisChip
                 label="Liquidation"
-                value={position.liquidationPrice ? usd(position.liquidationPrice, 0) : "-"}
+                value={
+                  liveSide === "LONG" && market.mark
+                    ? usd(market.mark * (1 - position.liquidationDistancePct), 0)
+                    : liveSide === "SHORT" && market.mark
+                      ? usd(market.mark * (1 + position.liquidationDistancePct), 0)
+                      : "-"
+                }
                 tone="bad"
               />
             </div>
@@ -764,8 +893,8 @@ export function ReadinessConsole() {
               <CardHeader>
                 <CardTitle>Go-live readiness</CardTitle>
                 <CardDescription>
-                  Dynamic long/short trend follower. When every blocking item is green and live is
-                  armed, POST of the dry-run plan submits a Phoenix market order.
+                  Dynamic long/short trend follower. When live is armed, the server 4h loop submits
+                  opens and closes. You do not POST. Kill flattens Phoenix.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
@@ -799,7 +928,7 @@ export function ReadinessConsole() {
                       <AlertTitle>{goLive.ready ? "Live is armed" : "Remaining blockers"}</AlertTitle>
                       <AlertDescription className="text-amber-100/80">
                         {goLive.ready
-                          ? "The current long/short plan can be submitted as a Phoenix market order. Past backtest Sharpe is not a guarantee of live results."
+                          ? "Live is armed. The 4h auto-loop trades without you. Past backtest Sharpe is not a guarantee of live results."
                           : "Fix the blocking items below. Live orders stay off until the checklist is green."}
                       </AlertDescription>
                     </Alert>
@@ -870,15 +999,16 @@ export function ReadinessConsole() {
                   <Row k="Write adapter" v="null" />
                   <Row k="Credential modules" v="none imported" />
                   <Row k="Canary authorized" v="false" />
-                  <Row k="Kill switch" v="paper flatten only" />
+                  <Row k="Kill switch" v="flatten Phoenix + halt auto" />
                 </div>
                 <Separator className="bg-white/10" />
                 <p>{snapshot.production.statement}</p>
                 <Button variant="destructive" onClick={() => void paperKill()} disabled={killing}>
-                  {killing ? "Flattening paper book..." : "Paper kill switch"}
+                  {killing ? "Flattening live book..." : "Kill — flatten live and halt auto"}
                 </Button>
                 <p className="text-xs text-zinc-500">
-                  The paper kill switch forces the position flat. It does not touch an exchange.
+                  Kill flattens the Phoenix BTC book (if live is armed) and blocks new auto entries
+                  until the process is restarted with the kill flag cleared.
                 </p>
               </CardContent>
             </Card>

@@ -4,11 +4,13 @@ import {
   phoenixMakerRoundTripRoePct,
 } from "./leverage";
 import { loadYearMarket } from "./market-data";
+import { liveConfig } from "./liveConfig";
+import { PhoenixPerpExecutor } from "./phoenixExecutor";
 import { productionBoundary } from "./production";
 import { EPOCH_ID, EPOCH_TITLE, SPEC_HASH, STRATEGY } from "./spec";
 import { buildFeatures } from "./strategy";
-import { defaultSimConfig, runSimulation } from "./simulate";
-import type { RegimeReading } from "./types";
+import { atrSizeBtc, defaultSimConfig, runSimulation } from "./simulate";
+import type { Regime, RegimeReading } from "./types";
 
 const globalForRuntime = globalThis as typeof globalThis & {
   __smartGridPaperKill?: boolean;
@@ -18,6 +20,14 @@ function paperKilled(): boolean {
   return globalForRuntime.__smartGridPaperKill === true;
 }
 
+export function setPaperKill(on: boolean) {
+  globalForRuntime.__smartGridPaperKill = on;
+}
+
+export function isPaperKilled(): boolean {
+  return paperKilled();
+}
+
 function priceLabel(value: number | null): string {
   return value === null ? "unavailable" : `$${Math.round(value).toLocaleString("en-US")}`;
 }
@@ -25,16 +35,37 @@ function priceLabel(value: number | null): string {
 export async function getSnapshot() {
   // Need ~1y of 4h + EMA150 daily warmup so the live signal matches the backtest
   // (short loadMarket lookback left dailyDir=0 and the book stuck FLAT).
-  const market = await loadYearMarket(Date.now(), 365);
+  const [market, phoenixMark, funded] = await Promise.all([
+    loadYearMarket(Date.now(), 365),
+    new PhoenixPerpExecutor().btcMark().catch(() => null),
+    new PhoenixPerpExecutor().accountState().catch(() => ({
+      ok: false as const,
+      collateralUsd: undefined as number | undefined,
+      position: { side: "FLAT" as const, sizeBtc: 0, entryUsd: null as number | null },
+    })),
+  ]);
   const features = buildFeatures(market.series);
   const sim = runSimulation(features, defaultSimConfig());
   const last = features[features.length - 1];
   const killed = paperKilled();
-  const mark = market.mark ?? 0;
+  const markSource = phoenixMark && phoenixMark > 0 ? "phoenix" : "hyperliquid";
+  const mark = phoenixMark && phoenixMark > 0 ? phoenixMark : (market.mark ?? 0);
 
-  const side = killed ? "FLAT" : sim.finalSide;
-  const sizeBtc = side === "FLAT" ? 0 : sim.finalSizeBtc;
+  const cfg = liveConfig();
+  const paperSide: Regime = killed ? "FLAT" : sim.finalSide;
+  const freshEntry = !killed && sim.finalOpenedThisBar && paperSide !== "FLAT";
+  const side: Regime = freshEntry ? paperSide : "FLAT";
+  const atr = last?.atr ?? 0;
+  const sizeAbs =
+    side === "FLAT"
+      ? 0
+      : atrSizeBtc(cfg.capitalUsd, mark, atr, cfg.riskPct, STRATEGY.atrStopMult, cfg.maxLeverage);
+  const sizeBtc = side === "SHORT" ? -sizeAbs : sizeAbs;
   const notionalUsd = Math.abs(sizeBtc) * mark;
+  const stopDist = STRATEGY.atrStopMult * atr;
+  const stopPrice =
+    side === "LONG" && stopDist > 0 ? mark - stopDist : side === "SHORT" && stopDist > 0 ? mark + stopDist : null;
+  const leverage = cfg.capitalUsd > 0 ? notionalUsd / cfg.capitalUsd : 0;
   const liquidationDistancePct = USABLE_EQUITY_FRACTION / STRATEGY.maxLeverage;
 
   const readings: RegimeReading[] = [
@@ -91,20 +122,23 @@ export async function getSnapshot() {
         ? new Date(market.lastClosed1m.openTime).toISOString()
         : null,
       mark,
+      markSource,
       warning: market.warning,
     },
     regime: {
-      side,
+      side: paperSide,
       dailyDir: last?.dailyDir ?? 0,
       readings,
     },
     position: {
       side,
+      paperSide,
+      freshEntry,
       sizeBtc,
       notionalUsd,
-      entry: killed ? null : sim.finalEntry,
-      stopPrice: killed ? null : sim.finalStop,
-      leverage: killed ? 0 : sim.finalLeverage,
+      entry: side === "FLAT" ? null : mark,
+      stopPrice: killed ? null : stopPrice,
+      leverage: killed ? 0 : leverage,
       liquidationPrice:
         side === "LONG"
           ? mark * (1 - liquidationDistancePct)
@@ -112,6 +146,19 @@ export async function getSnapshot() {
             ? mark * (1 + liquidationDistancePct)
             : null,
       liquidationDistancePct,
+      atr,
+      adx: last?.adx ?? null,
+      exitLow: last?.exitLow ?? null,
+      exitHigh: last?.exitHigh ?? null,
+      bar: last
+        ? {
+            openTime: last.candle.openTime,
+            open: last.candle.open,
+            high: last.candle.high,
+            low: last.candle.low,
+            close: last.candle.close,
+          }
+        : null,
     },
     recent: {
       windowDays: features.length ? (last.candle.openTime - features[0].candle.openTime) / 86_400_000 : 0,
@@ -125,6 +172,12 @@ export async function getSnapshot() {
       makerRoundTripFeeRoePct: phoenixMakerRoundTripRoePct(STRATEGY.maxLeverage),
     },
     production: productionBoundary(),
+    live: {
+      side: funded.position?.side ?? "FLAT",
+      sizeBtc: funded.position?.sizeBtc ?? 0,
+      entryUsd: funded.position?.entryUsd ?? null,
+      collateralUsd: funded.collateralUsd ?? null,
+    },
     paperKill: killed,
   };
 }
