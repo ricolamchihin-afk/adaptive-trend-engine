@@ -135,6 +135,34 @@ export async function fetchYahooBars(
   return closedOnly(candles, now);
 }
 
+async function fetchKlinePages(
+  urlFor: (startTime: number) => string,
+  intervalMs: number,
+  startTime: number,
+  now: number,
+  pageLimit: number,
+): Promise<Candle[]> {
+  const all: Candle[] = [];
+  let cursor = startTime;
+  // ponytail: 10 pages × 1000 4h bars ≈ 4.5y. Raise the cap if the lookback grows.
+  for (let page = 0; page < 10; page += 1) {
+    const batch = parseBinanceKlines(await getJson(urlFor(cursor)), intervalMs);
+    if (!batch.length) break;
+    all.push(...batch);
+    const lastOpen = batch[batch.length - 1].openTime;
+    if (batch.length < pageLimit || lastOpen + intervalMs >= now) break;
+    cursor = lastOpen + intervalMs;
+  }
+  const seen = new Set<number>();
+  const unique = all.filter((candle) => {
+    if (seen.has(candle.openTime)) return false;
+    seen.add(candle.openTime);
+    return true;
+  });
+  unique.sort((a, b) => a.openTime - b.openTime);
+  return closedOnly(unique, now);
+}
+
 async function fetchBinanceHost(
   host: string,
   symbol: string,
@@ -143,9 +171,14 @@ async function fetchBinanceHost(
   startTime: number,
   now: number,
 ): Promise<Candle[]> {
-  const url = `${host}/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&startTime=${startTime}&endTime=${now}&limit=1000`;
-  const candles = parseBinanceKlines(await getJson(url), intervalMs);
-  return closedOnly(candles, now);
+  return fetchKlinePages(
+    (cursor) =>
+      `${host}/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&startTime=${cursor}&endTime=${now}&limit=1000`,
+    intervalMs,
+    startTime,
+    now,
+    1000,
+  );
 }
 
 export async function fetchBinanceBars(
@@ -177,8 +210,14 @@ export async function fetchAsterBars(
   now: number,
 ): Promise<Candle[]> {
   const intervalMs = interval === "1d" ? DAY_MS : FOUR_HOUR_MS;
-  const url = `${ASTER}/fapi/v1/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&startTime=${now - lookbackMs}&endTime=${now}&limit=1500`;
-  return closedOnly(parseBinanceKlines(await getJson(url), intervalMs), now);
+  return fetchKlinePages(
+    (cursor) =>
+      `${ASTER}/fapi/v1/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&startTime=${cursor}&endTime=${now}&limit=1500`,
+    intervalMs,
+    now - lookbackMs,
+    now,
+    1500,
+  );
 }
 
 export async function fetchHyperliquidBars(
