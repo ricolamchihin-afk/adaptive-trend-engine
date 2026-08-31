@@ -23,6 +23,7 @@ param(
     [string]$OutFile = "",
     [switch]$Standalone,
     [switch]$PopulationOnly,
+    [switch]$SelfCheck,
     [int]$Limit = 0,
     [int]$YahooDelayMs = 120
 )
@@ -483,7 +484,34 @@ function Get-ScreenSummary($Screens, [int]$Population) {
     return $s
 }
 
+function Test-Ps51NumberPath {
+    # Reproduces the Windows 5.1 crash: Decimal into List[double] / [double[]].
+    $decimals = [decimal[]]@(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+    $strict = $false
+    try {
+        $bad = New-Object "System.Collections.Generic.List[double]"
+        $bad.Add($decimals[0])
+    }
+    catch {
+        $strict = ([string]$_.Exception.Message -match "Argument types do not match|is not of type")
+    }
+    $ema = @(Get-EmaSeries $decimals 5)
+    $rsi = Get-RsiWilder $decimals 14
+    $pct = [int][math]::Min(100, [math]::Floor((100 * 1) / 112))
+    if ($ema.Count -lt 1) { throw "selfcheck_ema_empty" }
+    if ($null -eq $rsi -or $rsi -lt 0 -or $rsi -gt 100) { throw "selfcheck_rsi" }
+    if ($pct -ne 0) { throw "selfcheck_pct" }
+    $last = [double]$ema[$ema.Count - 1]
+    if ($last -lt 15 -or $last -gt 20) { throw "selfcheck_ema_range:$last" }
+    Write-Host ("selfcheck ok emaLast={0:N4} rsi={1:N2} pct={2} listDoubleRejectsDecimal={3}" -f $last, $rsi, $pct, $strict)
+}
+
 # --- main ---
+if ($SelfCheck) {
+    Test-Ps51NumberPath
+    return
+}
+
 $root = Get-RepoRoot
 if (-not $OutFile) {
     $dir = Join-Path $root "data\us-equity"
