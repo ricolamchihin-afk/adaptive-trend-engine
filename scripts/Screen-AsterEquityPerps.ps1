@@ -14,6 +14,8 @@
 #   -OutFile C:\temp\screen.json
 #
 # Paper only. Does not place Aster orders.
+# Windows PowerShell 5.1 safe: JSON numbers are Decimal; do not bind [double[]]
+# or List[double], and pass Int32 into Write-Progress -PercentComplete.
 
 [CmdletBinding()]
 param(
@@ -103,6 +105,12 @@ function Test-Engine {
     }
 }
 
+function ConvertTo-Doubles($Values) {
+    # Windows PowerShell 5.1: ConvertFrom-Json numbers are Decimal.
+    # List[double] and [double[]] params reject them ("Argument types do not match").
+    return @($Values | ForEach-Object { [double]$_ })
+}
+
 function Get-YahooBars([string]$Ticker, [string]$Interval, [string]$Range) {
     $url = "{0}/{1}?interval={2}&range={3}&includePrePost=false" -f $YahooChart, [uri]::EscapeDataString($Ticker), $Interval, $Range
     $chart = Invoke-JsonGet $url 45
@@ -111,21 +119,22 @@ function Get-YahooBars([string]$Ticker, [string]$Interval, [string]$Range) {
     $row = @($result)[0]
     $ts = @($row.timestamp)
     $q = $row.indicators.quote[0]
-    $bars = New-Object System.Collections.Generic.List[object]
+    $bars = New-Object System.Collections.ArrayList
     for ($i = 0; $i -lt $ts.Count; $i++) {
         $o = $q.open[$i]; $h = $q.high[$i]; $l = $q.low[$i]; $c = $q.close[$i]
         if ($null -eq $o -or $null -eq $h -or $null -eq $l -or $null -eq $c) { continue }
         $vol = 0.0
         if ($q.volume -and $null -ne $q.volume[$i]) { $vol = [double]$q.volume[$i] }
-        $openMs = [int64]([int64]$ts[$i] * 1000)
-        $bars.Add([pscustomobject]@{
+        # unix seconds * 1000 overflows Int32; go through Double then Int64.
+        $openMs = [int64]([double]$ts[$i] * 1000.0)
+        [void]$bars.Add([pscustomobject]@{
                 openTime = $openMs
                 open     = [double]$o
                 high     = [double]$h
                 low      = [double]$l
                 close    = [double]$c
                 volume   = $vol
-            }) | Out-Null
+            })
     }
     return @($bars)
 }
@@ -146,13 +155,13 @@ function Get-AsterBars([string]$AsterSymbol, [string]$Interval, [int]$Limit = 15
     return @($bars)
 }
 
-function ConvertTo-FourHour([object[]]$Hourly) {
+function ConvertTo-FourHour($Hourly) {
     $buckets = @{}
-    $interval = 4L * 60L * 60L * 1000L
-    foreach ($bar in $Hourly) {
-        $key = [int64]([math]::Floor($bar.openTime / $interval) * $interval)
-        if (-not $buckets.ContainsKey($key)) { $buckets[$key] = New-Object System.Collections.Generic.List[object] }
-        $buckets[$key].Add($bar) | Out-Null
+    $interval = [int64]14400000
+    foreach ($bar in @($Hourly)) {
+        $key = [int64]([math]::Floor([double]$bar.openTime / $interval) * $interval)
+        if (-not $buckets.ContainsKey($key)) { $buckets[$key] = New-Object System.Collections.ArrayList }
+        [void]$buckets[$key].Add($bar)
     }
     $out = foreach ($key in ($buckets.Keys | Sort-Object)) {
         $rows = $buckets[$key]
@@ -168,32 +177,34 @@ function ConvertTo-FourHour([object[]]$Hourly) {
     return @($out)
 }
 
-function Get-EmaSeries([double[]]$Values, [int]$Period) {
-    if ($Values.Count -lt $Period) { return @() }
+function Get-EmaSeries($Values, [int]$Period) {
+    $vals = @(ConvertTo-Doubles $Values)
+    if ($vals.Count -lt $Period) { return @() }
     $k = 2.0 / ($Period + 1)
     $ema = 0.0
-    for ($i = 0; $i -lt $Period; $i++) { $ema += $Values[$i] }
+    for ($i = 0; $i -lt $Period; $i++) { $ema += $vals[$i] }
     $ema = $ema / $Period
-    $out = New-Object System.Collections.Generic.List[double]
-    $out.Add($ema) | Out-Null
-    for ($i = $Period; $i -lt $Values.Count; $i++) {
-        $ema = $Values[$i] * $k + $ema * (1 - $k)
-        $out.Add($ema) | Out-Null
+    $out = New-Object System.Collections.ArrayList
+    [void]$out.Add([double]$ema)
+    for ($i = $Period; $i -lt $vals.Count; $i++) {
+        $ema = $vals[$i] * $k + $ema * (1 - $k)
+        [void]$out.Add([double]$ema)
     }
     return @($out)
 }
 
-function Get-RsiWilder([double[]]$Values, [int]$Period) {
-    if ($Values.Count -lt $Period + 1) { return $null }
+function Get-RsiWilder($Values, [int]$Period) {
+    $vals = @(ConvertTo-Doubles $Values)
+    if ($vals.Count -lt $Period + 1) { return $null }
     $gain = 0.0; $loss = 0.0
     for ($i = 1; $i -le $Period; $i++) {
-        $chg = $Values[$i] - $Values[$i - 1]
+        $chg = $vals[$i] - $vals[$i - 1]
         if ($chg -ge 0) { $gain += $chg } else { $loss -= $chg }
     }
     $avgGain = $gain / $Period
     $avgLoss = $loss / $Period
-    for ($i = $Period + 1; $i -lt $Values.Count; $i++) {
-        $chg = $Values[$i] - $Values[$i - 1]
+    for ($i = $Period + 1; $i -lt $vals.Count; $i++) {
+        $chg = $vals[$i] - $vals[$i - 1]
         $up = 0.0; $dn = 0.0
         if ($chg -gt 0) { $up = $chg } else { $dn = -$chg }
         $avgGain = ($avgGain * ($Period - 1) + $up) / $Period
@@ -204,18 +215,20 @@ function Get-RsiWilder([double[]]$Values, [int]$Period) {
     return 100.0 - (100.0 / (1.0 + $rs))
 }
 
-function Get-TrueRange([double]$High, [double]$Low, [double]$PrevClose) {
-    $a = $High - $Low
-    $b = [math]::Abs($High - $PrevClose)
-    $c = [math]::Abs($Low - $PrevClose)
+function Get-TrueRange($High, $Low, $PrevClose) {
+    $h = [double]$High; $l = [double]$Low; $pc = [double]$PrevClose
+    $a = $h - $l
+    $b = [math]::Abs($h - $pc)
+    $c = [math]::Abs($l - $pc)
     return [math]::Max($a, [math]::Max($b, $c))
 }
 
-function Get-Atr([object[]]$Bars, [int]$Period) {
-    if ($Bars.Count -lt $Period + 1) { return $null }
-    $trs = New-Object System.Collections.Generic.List[double]
-    for ($i = 1; $i -lt $Bars.Count; $i++) {
-        $trs.Add((Get-TrueRange $Bars[$i].high $Bars[$i].low $Bars[$i - 1].close)) | Out-Null
+function Get-Atr($Bars, [int]$Period) {
+    $rows = @($Bars)
+    if ($rows.Count -lt $Period + 1) { return $null }
+    $trs = New-Object System.Collections.ArrayList
+    for ($i = 1; $i -lt $rows.Count; $i++) {
+        [void]$trs.Add([double](Get-TrueRange $rows[$i].high $rows[$i].low $rows[$i - 1].close))
     }
     $value = 0.0
     for ($i = 0; $i -lt $Period; $i++) { $value += $trs[$i] }
@@ -226,33 +239,34 @@ function Get-Atr([object[]]$Bars, [int]$Period) {
     return $value
 }
 
-function Get-AdxWilder([object[]]$Bars, [int]$Period) {
-    if ($Bars.Count -lt $Period * 2 + 1) { return $null }
-    $plusDm = New-Object System.Collections.Generic.List[double]
-    $minusDm = New-Object System.Collections.Generic.List[double]
-    $tr = New-Object System.Collections.Generic.List[double]
-    for ($i = 1; $i -lt $Bars.Count; $i++) {
-        $up = $Bars[$i].high - $Bars[$i - 1].high
-        $down = $Bars[$i - 1].low - $Bars[$i].low
+function Get-AdxWilder($Bars, [int]$Period) {
+    $rows = @($Bars)
+    if ($rows.Count -lt $Period * 2 + 1) { return $null }
+    $plusDm = New-Object System.Collections.ArrayList
+    $minusDm = New-Object System.Collections.ArrayList
+    $tr = New-Object System.Collections.ArrayList
+    for ($i = 1; $i -lt $rows.Count; $i++) {
+        $up = [double]$rows[$i].high - [double]$rows[$i - 1].high
+        $down = [double]$rows[$i - 1].low - [double]$rows[$i].low
         $p = 0.0; $m = 0.0
         if ($up -gt $down -and $up -gt 0) { $p = $up }
         if ($down -gt $up -and $down -gt 0) { $m = $down }
-        $plusDm.Add($p) | Out-Null
-        $minusDm.Add($m) | Out-Null
-        $tr.Add((Get-TrueRange $Bars[$i].high $Bars[$i].low $Bars[$i - 1].close)) | Out-Null
+        [void]$plusDm.Add([double]$p)
+        [void]$minusDm.Add([double]$m)
+        [void]$tr.Add([double](Get-TrueRange $rows[$i].high $rows[$i].low $rows[$i - 1].close))
     }
     $smoothTr = 0.0; $smoothPlus = 0.0; $smoothMinus = 0.0
     for ($i = 0; $i -lt $Period; $i++) {
-        $smoothTr += $tr[$i]; $smoothPlus += $plusDm[$i]; $smoothMinus += $minusDm[$i]
+        $smoothTr += [double]$tr[$i]; $smoothPlus += [double]$plusDm[$i]; $smoothMinus += [double]$minusDm[$i]
     }
-    $dx = New-Object System.Collections.Generic.List[double]
+    $dx = New-Object System.Collections.ArrayList
     $plusDi = 0.0; $minusDi = 0.0
     if ($smoothTr -ne 0) {
         $plusDi = 100.0 * $smoothPlus / $smoothTr
         $minusDi = 100.0 * $smoothMinus / $smoothTr
     }
     $denom = $plusDi + $minusDi
-    if ($denom -eq 0) { $dx.Add(0.0) | Out-Null } else { $dx.Add((100.0 * [math]::Abs($plusDi - $minusDi)) / $denom) | Out-Null }
+    if ($denom -eq 0) { [void]$dx.Add(0.0) } else { [void]$dx.Add([double]((100.0 * [math]::Abs($plusDi - $minusDi)) / $denom)) }
     for ($i = $Period; $i -lt $tr.Count; $i++) {
         $smoothTr = $smoothTr - $smoothTr / $Period + $tr[$i]
         $smoothPlus = $smoothPlus - $smoothPlus / $Period + $plusDm[$i]
@@ -263,7 +277,7 @@ function Get-AdxWilder([object[]]$Bars, [int]$Period) {
             $minusDi = 100.0 * $smoothMinus / $smoothTr
         }
         $denom = $plusDi + $minusDi
-        if ($denom -eq 0) { $dx.Add(0.0) | Out-Null } else { $dx.Add((100.0 * [math]::Abs($plusDi - $minusDi)) / $denom) | Out-Null }
+        if ($denom -eq 0) { [void]$dx.Add(0.0) } else { [void]$dx.Add([double]((100.0 * [math]::Abs($plusDi - $minusDi)) / $denom)) }
     }
     if ($dx.Count -lt $Period) { return $null }
     $adx = 0.0
@@ -275,11 +289,12 @@ function Get-AdxWilder([object[]]$Bars, [int]$Period) {
     return $adx
 }
 
-function Get-MacdHist([double[]]$Closes) {
+function Get-MacdHist($Closes) {
+    $vals = @(ConvertTo-Doubles $Closes)
     $fast = 12; $slow = 26; $signalPeriod = 9
-    if ($Closes.Count -lt $slow + $signalPeriod) { return $null }
-    $fastArr = @(Get-EmaSeries $Closes $fast)
-    $slowArr = @(Get-EmaSeries $Closes $slow)
+    if ($vals.Count -lt $slow + $signalPeriod) { return $null }
+    $fastArr = @(Get-EmaSeries $vals $fast)
+    $slowArr = @(Get-EmaSeries $vals $slow)
     $offset = $fastArr.Count - $slowArr.Count
     if ($offset -lt 0) { return $null }
     $macdLine = for ($i = 0; $i -lt $slowArr.Count; $i++) { $fastArr[$i + $offset] - $slowArr[$i] }
@@ -288,13 +303,14 @@ function Get-MacdHist([double[]]$Closes) {
     return $macdLine[$macdLine.Count - 1] - $signalArr[$signalArr.Count - 1]
 }
 
-function Get-DailyContext([object[]]$Daily) {
-    $closes = @($Daily | ForEach-Object { [double]$_.close })
+function Get-DailyContext($Daily) {
+    $rows = @($Daily)
+    $closes = @(ConvertTo-Doubles @($rows | ForEach-Object { $_.close }))
     $ema = @(Get-EmaSeries $closes 150)
-    if ($ema.Count -lt 1 -or $Daily.Count -lt 1) {
+    if ($ema.Count -lt 1 -or $rows.Count -lt 1) {
         return @{ dir = 0; slopePct = $null }
     }
-    $last = $Daily[$Daily.Count - 1]
+    $last = $rows[$rows.Count - 1]
     $cur = $ema[$ema.Count - 1]
     $dir = -1
     if ($last.close -gt $cur) { $dir = 1 }
@@ -306,12 +322,14 @@ function Get-DailyContext([object[]]$Daily) {
     return @{ dir = $dir; slopePct = $slope }
 }
 
-function Get-AteSetup([object[]]$Daily, [object[]]$FourHour) {
+function Get-AteSetup($Daily, $FourHour) {
+    $Daily = @($Daily)
+    $FourHour = @($FourHour)
     $emptyGates = @{
         dailyDir = 0; adxOk = $false; rsiOk = $false; macdOk = $false
         slopeOk = $false; atrOk = $false; donchianReady = $false; breakout = $false
     }
-    if (-not $FourHour -or $FourHour.Count -lt 35) {
+    if ($FourHour.Count -lt 35) {
         return @{
             bias = "FLAT"; action = "FLAT"; reasons = @("Not enough 4h bars")
             gates = $emptyGates
@@ -389,12 +407,12 @@ function Get-AteSetup([object[]]$Daily, [object[]]$FourHour) {
             indicators = $indicators
         }
     }
-    $reasons = New-Object System.Collections.Generic.List[string]
-    if ([int]$daily.dir -eq 0) { $reasons.Add("Daily EMA regime unavailable") | Out-Null }
-    if (-not $adxOk) { $reasons.Add("ADX below threshold") | Out-Null }
-    if ($daily.dir -gt 0 -and -not $rsiLong) { $reasons.Add("RSI below long gate") | Out-Null }
-    if ($daily.dir -lt 0 -and -not $rsiShort) { $reasons.Add("RSI above short gate") | Out-Null }
-    if ($reasons.Count -lt 1) { $reasons.Add("Gates conflict; stay flat") | Out-Null }
+    $reasons = New-Object System.Collections.ArrayList
+    if ([int]$daily.dir -eq 0) { [void]$reasons.Add("Daily EMA regime unavailable") }
+    if (-not $adxOk) { [void]$reasons.Add("ADX below threshold") }
+    if ($daily.dir -gt 0 -and -not $rsiLong) { [void]$reasons.Add("RSI below long gate") }
+    if ($daily.dir -lt 0 -and -not $rsiShort) { [void]$reasons.Add("RSI above short gate") }
+    if ($reasons.Count -lt 1) { [void]$reasons.Add("Gates conflict; stay flat") }
     return @{
         bias = "FLAT"; action = "FLAT"; reasons = @($reasons)
         gates = @{
@@ -405,7 +423,7 @@ function Get-AteSetup([object[]]$Daily, [object[]]$FourHour) {
     }
 }
 
-function Get-StandaloneScreen([object]$Row) {
+function Get-StandaloneScreen($Row) {
     $source = "yahoo_public"
     $warning = "US/cash session bars resampled to 4h. Aster is the execution venue only."
     $daily = @(); $four = @()
@@ -442,7 +460,7 @@ function Get-StandaloneScreen([object]$Row) {
     }
 }
 
-function Get-ScreenSummary([object[]]$Screens, [int]$Population) {
+function Get-ScreenSummary($Screens, [int]$Population) {
     $s = [ordered]@{
         population = $Population
         screened   = @($Screens).Count
@@ -492,21 +510,29 @@ if ($engineUp) {
 }
 elseif (-not $PopulationOnly) {
     Write-Host "Local engine not reachable. Screening Yahoo/Aster from PowerShell..."
-    $slice = $population
+    $slice = @($population)
     if ($Limit -gt 0) { $slice = @($population | Select-Object -First $Limit) }
-    $screens = New-Object System.Collections.Generic.List[object]
-    $errors = New-Object System.Collections.Generic.List[object]
+    $screens = New-Object System.Collections.ArrayList
+    $errors = New-Object System.Collections.ArrayList
     $n = 0
+    $total = [math]::Max(1, $slice.Count)
     foreach ($row in $slice) {
         $n++
-        Write-Progress -Activity "Screening Aster equity perps" -Status $row.base -PercentComplete (100.0 * $n / $slice.Count)
+        $pct = [int][math]::Min(100, [math]::Floor((100 * $n) / $total))
         try {
-            $screens.Add((Get-StandaloneScreen $row)) | Out-Null
+            Write-Progress -Activity "Screening Aster equity perps" -Status ([string]$row.base) -PercentComplete $pct
+        }
+        catch {
+            # Hosts without a progress UI (or PS 5.1 type quirks) should not abort the screen.
+        }
+        try {
+            [void]$screens.Add((Get-StandaloneScreen $row))
         }
         catch {
             $msg = [string]$_.Exception.Message
-            $errors.Add([ordered]@{ base = $row.base; error = $msg }) | Out-Null
-            $screens.Add([ordered]@{
+            Write-Host ("  {0} failed: {1}" -f $row.base, $msg)
+            [void]$errors.Add([ordered]@{ base = $row.base; error = $msg })
+            [void]$screens.Add([ordered]@{
                     base        = $row.base
                     asterSymbol = $row.asterSymbol
                     cashTicker  = $row.cashTicker
@@ -516,11 +542,11 @@ elseif (-not $PopulationOnly) {
                     setup       = @{ bias = "FLAT"; action = "FLAT"; reasons = @("Screen failed"); gates = @{} }
                     indicators  = @{}
                     error       = $msg
-                }) | Out-Null
+                })
         }
         if ($YahooDelayMs -gt 0) { Start-Sleep -Milliseconds $YahooDelayMs }
     }
-    Write-Progress -Activity "Screening Aster equity perps" -Completed
+    try { Write-Progress -Activity "Screening Aster equity perps" -Completed } catch { }
     $report = [ordered]@{
         generatedAt = [DateTime]::UtcNow.ToString("o")
         venue       = "aster_usdt_perps"
