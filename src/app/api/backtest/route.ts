@@ -1,5 +1,6 @@
+import { loadResolvedMarket } from "@/lib/engine/asset-market";
 import { runBacktest } from "@/lib/engine/backtest";
-import { loadYearMarket } from "@/lib/engine/market-data";
+import { resolveAgainstUniverse } from "@/lib/engine/universe";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,8 @@ export async function GET(request: Request) {
   try {
     const params = new URL(request.url).searchParams;
     const years = Math.min(5, Math.max(1, num(params, "years") || 1));
-    const market = await loadYearMarket(Date.now(), years * 365);
+    const symbol = params.get("symbol") ?? "BTC";
+    const market = await loadResolvedMarket(resolveAgainstUniverse(symbol, null), Date.now(), years * 365);
     const sim = {
       capitalUsd: num(params, "capital"),
       riskPct: num(params, "risk"),

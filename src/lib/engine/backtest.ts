@@ -111,8 +111,8 @@ export function runBacktest(
     everShort: result.everShort,
     blownUp: result.blownUp,
     note:
-      marketSource === "hyperliquid_public"
-        ? "Turtle-style trend follower (Donchian + ATR sizing) at up to 10x on 4h closed public candles. Paper only; no live orders."
-        : "Offline synthetic candles. Labeled and not evidence.",
+      marketSource === "offline_synthetic_fallback"
+        ? "Offline synthetic candles. Labeled and not evidence."
+        : `Turtle-style trend follower (Donchian + ATR sizing) on 4h closed ${marketSource} candles. Paper only; no live orders.`,
   };
 }

@@ -1,3 +1,4 @@
+import { canEnterLong, canEnterShort } from "./decide";
 import { STRATEGY, venueFeeRate } from "./spec";
 import type { Feature } from "./strategy";
 import type { Regime } from "./types";
@@ -220,21 +221,12 @@ export function runSimulation(features: Feature[], cfg: SimConfig): SimResult {
       }
     }
 
-    const trendStrong = f.adx !== null && f.adx >= cfg.adxThreshold;
-    const rsiOkLong = cfg.rsiLongMin <= 0 || (f.rsi !== null && f.rsi >= cfg.rsiLongMin);
-    const rsiOkShort = cfg.rsiShortMax >= 100 || (f.rsi !== null && f.rsi <= cfg.rsiShortMax);
-    const macdOkLong = cfg.macdFilter < 1 || (f.macdHist !== null && f.macdHist > 0);
-    const macdOkShort = cfg.macdFilter < 1 || (f.macdHist !== null && f.macdHist < 0);
-    const slopeOkLong =
-      cfg.emaSlopeMinPct <= 0 || (f.dailyEmaSlopePct !== null && f.dailyEmaSlopePct >= cfg.emaSlopeMinPct);
-    const slopeOkShort =
-      cfg.emaSlopeMinPct <= 0 || (f.dailyEmaSlopePct !== null && f.dailyEmaSlopePct <= -cfg.emaSlopeMinPct);
-    if (posBtc === 0 && !justExited && trendStrong && f.atr !== null && f.atr > 0) {
-      if (f.dailyDir > 0 && rsiOkLong && macdOkLong && slopeOkLong && f.entryHigh !== null && candle.high >= f.entryHigh) {
-        open(1, Math.max(candle.open, f.entryHigh), f.atr, "LONG");
+    if (posBtc === 0 && !justExited && f.atr !== null) {
+      if (canEnterLong(f, cfg)) {
+        open(1, Math.max(candle.open, f.entryHigh as number), f.atr, "LONG");
         entryAdx = f.adx ?? 0;
-      } else if (f.dailyDir < 0 && rsiOkShort && macdOkShort && slopeOkShort && f.entryLow !== null && candle.low <= f.entryLow) {
-        open(-1, Math.min(candle.open, f.entryLow), f.atr, "SHORT");
+      } else if (canEnterShort(f, cfg)) {
+        open(-1, Math.min(candle.open, f.entryLow as number), f.atr, "SHORT");
         entryAdx = f.adx ?? 0;
       }
     }
