@@ -20,7 +20,7 @@ export interface ResolvedSymbol {
 const ASTER_INFO = "https://fapi.asterdex.com/fapi/v1/exchangeInfo";
 
 // Aster base → Yahoo cash ticker when they differ (US first, then ADRs / foreign).
-const CASH_ALIAS: Record<string, string> = {
+export const CASH_ALIAS: Record<string, string> = {
   PAYP: "PYPL",
   BRKB: "BRK-B",
   SAMSUNG: "005930.KS",
@@ -291,6 +291,10 @@ export async function fetchAsterUniverse(now = Date.now()): Promise<AsterUnivers
     commodityBases: [...commodity].sort(),
     cryptoBases: [...crypto].sort(),
   };
+}
+
+export function asterEquityBases(universe: AsterUniverse): string[] {
+  return [...new Set([...universe.stockBases, ...universe.etfBases])].sort();
 }
 
 export function resolveAgainstUniverse(raw: string, universe: AsterUniverse | null): ResolvedSymbol {

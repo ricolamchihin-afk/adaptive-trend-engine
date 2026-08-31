@@ -43,7 +43,8 @@ npm run dev     # console on http://127.0.0.1:43871
 
 Endpoints: `/api/snapshot` (live BTC signal + position), `/api/signal?symbol=AAPL`
 (LONG/SHORT/FLAT + Grok playbook slice), `/api/playbook` (full indicator rules for a Grok
-bot), `/api/universe` (Aster stock/crypto classification), `/api/extract` (Yahoo daily dump
+bot), `/api/universe` (Aster stock/crypto classification), `/api/screen` (every Aster
+equity perp → one screening JSON), `/api/extract` (Yahoo daily dump
 into `data/us-equity/`), `/api/backtest?symbol=AAPL&years=N&...` (tunable backtest),
 `/api/sweep` (parameter sensitivity), `/api/dry-run` (order preview + Telegram),
 `/api/connections` (health), `/api/go-live` (readiness checklist), `/api/health`.
@@ -61,6 +62,11 @@ Same gates as the backtest: daily EMA(150) regime, Donchian 34/5, RSI 50/50, ATR
 contract, and a system prompt. AWS is not required — 20 names × 5y daily is kilobytes from
 Yahoo ($0). A full US 1-minute SIP dump on S3 would be ~$1–5/month storage; paid tape is
 tens to hundreds per month. Skip both unless you need official consolidated prints.
+
+PyCharm / Windows: run `scripts/Screen-AsterEquityPerps.ps1` (working directory = repo
+root). It pulls every TRADING Aster STOCK/ETF perp as the population and writes
+`data/us-equity/aster-equity-screen.json`. If `npm run dev` is up it uses the engine
+(`GET /api/screen`); otherwise it screens Yahoo/Aster candles in PowerShell.
 
 ## Configuration
 

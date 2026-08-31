@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { cashTickerFor, describeRoute, resolveAgainstUniverse, resolveSymbol, stripQuote } from "./universe";
+import {
+  asterEquityBases,
+  cashTickerFor,
+  describeRoute,
+  resolveAgainstUniverse,
+  resolveSymbol,
+  stripQuote,
+} from "./universe";
 
 describe("symbol router", () => {
   it("routes US stocks to Yahoo cash and an Aster perp", () => {
@@ -37,6 +44,18 @@ describe("symbol router", () => {
     expect(live.assetClass).toBe("equity");
     expect(live.preferredFeed).toBe("yahoo");
     expect(live.asterSymbol).toBe("SNDKUSDT");
+  });
+
+  it("unions STOCK and ETF bases for the equity population", () => {
+    expect(
+      asterEquityBases({
+        fetchedAt: 1,
+        stockBases: ["AAPL", "QQQ"],
+        etfBases: ["QQQ", "SPY"],
+        commodityBases: [],
+        cryptoBases: [],
+      }),
+    ).toEqual(["AAPL", "QQQ", "SPY"]);
   });
 
   it("describes every asset class", () => {
