@@ -41,9 +41,26 @@ npm test
 npm run dev     # console on http://127.0.0.1:43871
 ```
 
-Endpoints: `/api/snapshot` (live signal + position), `/api/backtest?years=N&...` (tunable
-backtest), `/api/sweep` (parameter sensitivity), `/api/dry-run` (order preview + Telegram),
+Endpoints: `/api/snapshot` (live BTC signal + position), `/api/signal?symbol=AAPL`
+(LONG/SHORT/FLAT + Grok playbook slice), `/api/playbook` (full indicator rules for a Grok
+bot), `/api/universe` (Aster stock/crypto classification), `/api/extract` (Yahoo daily dump
+into `data/us-equity/`), `/api/backtest?symbol=AAPL&years=N&...` (tunable backtest),
+`/api/sweep` (parameter sensitivity), `/api/dry-run` (order preview + Telegram),
 `/api/connections` (health), `/api/go-live` (readiness checklist), `/api/health`.
+
+## Aster preps + Grok bot
+
+Same gates as the backtest: daily EMA(150) regime, Donchian 34/5, RSI 50/50, ATR sizing.
+
+- **Crypto** (`BTC`, `ETH`, …): read Binance (or Binance.US), then Hyperliquid, then Aster.
+- **US stocks / ETFs** (`AAPL`, `NVDA`, `QQQ`, …): read Yahoo cash daily + 1h (resampled to
+  4h). Aster is the execution venue only.
+- **Output:** paper `LONG` / `SHORT` / `FLAT`. There is still no Aster write adapter.
+
+`GET /api/playbook` is the training document: indicator list, entry/exit text, output
+contract, and a system prompt. AWS is not required — 20 names × 5y daily is kilobytes from
+Yahoo ($0). A full US 1-minute SIP dump on S3 would be ~$1–5/month storage; paid tape is
+tens to hundreds per month. Skip both unless you need official consolidated prints.
 
 ## Configuration
 

@@ -16,6 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SignalsPanel } from "@/components/dashboard/signals";
 import type { Snapshot } from "@/lib/engine/runtime";
 import type { BacktestReport } from "@/lib/engine/backtest";
 import type { Regime } from "@/lib/engine/types";
@@ -25,6 +26,7 @@ import { cn } from "@/lib/utils";
 const REGIMES: Regime[] = ["LONG", "SHORT", "FLAT"];
 
 interface LabParams {
+  symbol: string;
   years: number;
   capitalUsd: number;
   riskPct: number; // percent
@@ -48,6 +50,7 @@ interface LabParams {
 }
 
 const DEFAULT_LAB: LabParams = {
+  symbol: "BTC",
   years: 2,
   capitalUsd: 1000,
   riskPct: 3,
@@ -116,7 +119,7 @@ interface DryRunResponse {
   note: string;
 }
 
-const LAB_FIELDS: Array<{ key: keyof LabParams; label: string; step?: number; hint: string }> = [
+const LAB_FIELDS: Array<{ key: Exclude<keyof LabParams, "symbol">; label: string; step?: number; hint: string }> = [
   { key: "years", label: "Years", hint: "1-3 (4h feed caps ~2.3y)" },
   { key: "capitalUsd", label: "Initial USD", step: 100, hint: "starting capital" },
   { key: "riskPct", label: "Risk % / trade", step: 0.5, hint: "ATR volatility sizing" },
@@ -317,6 +320,7 @@ export function ReadinessConsole() {
     setBacktestError(null);
     try {
       const q = new URLSearchParams({
+        symbol: p.symbol,
         years: String(p.years),
         capital: String(p.capitalUsd),
         risk: String(p.riskPct / 100),
@@ -497,12 +501,17 @@ export function ReadinessConsole() {
 
         <Tabs defaultValue="backtest" className="space-y-4">
           <TabsList className="bg-[#14181f]">
+            <TabsTrigger value="signals">Aster / Grok</TabsTrigger>
             <TabsTrigger value="backtest">Backtest lab</TabsTrigger>
             <TabsTrigger value="dryrun">Dry run</TabsTrigger>
             <TabsTrigger value="golive">Go-live</TabsTrigger>
             <TabsTrigger value="leverage">Leverage &amp; ROE</TabsTrigger>
             <TabsTrigger value="boundary">Production boundary</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="signals">
+            <SignalsPanel />
+          </TabsContent>
 
           <TabsContent value="backtest">
             <Card className="border-white/10 bg-[#14181f]">
@@ -516,6 +525,16 @@ export function ReadinessConsole() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
+                <div className="max-w-xs space-y-1">
+                  <Label htmlFor="lab-symbol">Symbol</Label>
+                  <Input
+                    id="lab-symbol"
+                    value={lab.symbol}
+                    onChange={(event) => setLab((prev) => ({ ...prev, symbol: event.target.value.toUpperCase() }))}
+                    placeholder="BTC or AAPL"
+                  />
+                  <p className="text-xs text-zinc-500">Crypto → Binance/HL. Stocks → US cash. Execute on Aster.</p>
+                </div>
                 <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                   {LAB_FIELDS.map((field) => (
                     <NumberField

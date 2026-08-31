@@ -49,3 +49,7 @@ data/phase7_9_readiness/state.json
 data/phase7_9_readiness/heartbeat.json
 data/phase7_9_readiness/*.jsonl
 data/phase7_9_readiness/venues.json
+
+# extracted US cash candles (regenerate via GET /api/extract)
+data/us-equity/*.json
+!data/us-equity/manifest.json
