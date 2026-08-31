@@ -68,6 +68,12 @@ root). It pulls every TRADING Aster STOCK/ETF perp as the population and writes
 `data/us-equity/aster-equity-screen.json`. If `npm run dev` is up it uses the engine
 (`GET /api/screen`); otherwise it screens Yahoo/Aster candles in PowerShell.
 
+The JSON is a snapshot, not a live stream. For a 4h CIO loop: run
+`scripts/Invoke-FourHourMission.ps1 -Standalone` (writes `latest.json` + `cio-brief.json`),
+then `scripts/Register-FourHourMission.ps1 -Standalone` to schedule it. Paste
+`GET /api/playbook` → `cioPrompt` into Grok as the CIO. Grok does not subscribe to
+the market; re-feed the new brief after each mission.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and edit. `.env` is git-ignored — never commit secrets.

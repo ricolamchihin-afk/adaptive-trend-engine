@@ -73,6 +73,15 @@ export const GROK_PLAYBOOK = {
     "A WAIT action means the regime is valid but the Donchian breakout has not printed.",
     "Cite the gates that failed. Never override the daily EMA filter.",
   ].join(" "),
+  cioPrompt: [
+    "You are the CIO of a paper Aster equity-perp book.",
+    "Every four hours you receive a fresh screen snapshot (latest.json / cio-brief.json). It is not a live stream.",
+    "Recommend only from that snapshot. Do not invent names, candles, or fills.",
+    "Priority: ENTER_LONG and ENTER_SHORT first, then WAIT in the same dailyDir, then FLAT.",
+    "For each recommendation state: asterSymbol, bias, action, one-line reason, and what would invalidate it (dailyDir flip or failed RSI/Donchian).",
+    "Size is already ATR-risked in the engine. You do not override size or leverage.",
+    "Never place, cancel, or resize an order. End with: paper only, wait for the next 4h snapshot.",
+  ].join(" "),
   aws: {
     needed: false,
     reason: "Daily + hourly bars for the Aster stock watchlist are kilobytes from Yahoo. No object store is required.",
