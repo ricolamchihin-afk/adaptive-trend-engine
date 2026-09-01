@@ -160,14 +160,14 @@ export function scoreSizedBook(
   laterMarks: Record<string, number>,
   opts: { scoringMethod?: PaperScore["scoringMethod"]; allowedDrawdown?: number; drawdownPenalty?: number } = {},
 ): PaperScore {
-  const startingCash = PAPER_OVERLAY.equityUsd;
+  const startingCash: number = PAPER_OVERLAY.equityUsd;
   const scoringMethod = opts.scoringMethod ?? "return-only";
   const allowedDrawdown = opts.allowedDrawdown ?? 100;
   const drawdownPenalty = opts.drawdownPenalty ?? 1;
 
   let disqualifiedReason: string | null = null;
-  const equityCurve = [startingCash];
-  let peak = startingCash;
+  const equityCurve: number[] = [startingCash];
+  let peak: number = startingCash;
   let maxDrawdown = 0;
 
   let unrealized = 0;
